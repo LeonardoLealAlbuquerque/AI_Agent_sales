@@ -1,0 +1,273 @@
+openapi: 3.0.3
+info:
+  title: B2B Sales Agent API
+  description: API de integração para análise de risco, crédito e histórico logístico de clientes B2B. Base para consumo de Agentes de IA.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+    description: Servidor de Desenvolvimento Local
+
+paths:
+  /api/v1/clients/{client_id}/risk:
+    get:
+      summary: Retorna a análise de risco financeiro do cliente
+      tags:
+        - Risk
+      parameters:
+        - $ref: '#/components/parameters/ClientIdParam'
+      responses:
+        '200':
+          description: Análise de risco consolidada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskAnalysis'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/clients/{client_id}/credit:
+    get:
+      summary: Retorna o limite de crédito e disponibilidade
+      tags:
+        - Credit
+      parameters:
+        - $ref: '#/components/parameters/ClientIdParam'
+      responses:
+        '200':
+          description: Análise de crédito retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditAnalysis'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/clients/{client_id}/invoices:
+    get:
+      summary: Lista as faturas do cliente
+      description: Retorna as faturas. Utilize o filtro de status para buscar faturas vencidas.
+      tags:
+        - Invoices
+      parameters:
+        - $ref: '#/components/parameters/ClientIdParam'
+        - name: status
+          in: query
+          description: Filtro por status da fatura (ex PENDING, PAID, OVERDUE)
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/SkipParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Lista de faturas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invoice'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/clients/{client_id}/orders:
+    get:
+      summary: Lista os pedidos recentes do cliente
+      tags:
+        - Orders
+      parameters:
+        - $ref: '#/components/parameters/ClientIdParam'
+        - $ref: '#/components/parameters/SkipParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Resumo dos pedidos paginados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderSummary'
+
+  /api/v1/orders/{order_id}:
+    get:
+      summary: Retorna os detalhes profundos de um pedido
+      tags:
+        - Orders
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalhes do pedido, logística e itens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+components:
+  parameters:
+    ClientIdParam:
+      name: client_id
+      in: path
+      required: true
+      description: ID único do cliente
+      schema:
+        type: integer
+    SkipParam:
+      name: skip
+      in: query
+      description: Quantidade de registros para pular (paginação)
+      required: false
+      schema:
+        type: integer
+        default: 0
+    LimitParam:
+      name: limit
+      in: query
+      description: Quantidade máxima de registros retornados (paginação)
+      required: false
+      schema:
+        type: integer
+        default: 100
+
+  schemas:
+    RiskAnalysis:
+      type: object
+      properties:
+        client_id:
+          type: integer
+        total_exposure:
+          type: number
+        max_overdue_days:
+          type: integer
+        open_orders_count:
+          type: integer
+        open_orders_amount:
+          type: number
+        risk_level:
+          type: string
+        inconsistencies:
+          type: array
+          items:
+            type: object
+            properties:
+              rule_name:
+                type: string
+              description:
+                type: string
+              severity:
+                type: string
+
+    CreditAnalysis:
+      type: object
+      properties:
+        client_id:
+          type: integer
+        credit_limit:
+          type: number
+        current_exposure:
+          type: number
+        available_credit:
+          type: number
+        is_blocked:
+          type: boolean
+        block_reasons:
+          type: array
+          items:
+            type: string
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: integer
+        client_id:
+          type: integer
+        amount:
+          type: number
+        due_date:
+          type: string
+          format: date
+        status:
+          type: string
+
+    DeliveryInfo:
+      type: object
+      properties:
+        estimated_delivery_date:
+          type: string
+          format: date
+        actual_delivery_date:
+          type: string
+          format: date
+          nullable: true
+        is_delayed:
+          type: boolean
+        delay_days:
+          type: integer
+
+    OrderSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        client_id:
+          type: integer
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date
+        total_amount:
+          type: number
+        delivery_info:
+          $ref: '#/components/schemas/DeliveryInfo'
+
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrderSummary'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  product_name:
+                    type: string
+                  quantity:
+                    type: integer
+                  unit_price:
+                    type: number
+                  subtotal:
+                    type: number
+
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+
+  responses:
+    NotFoundError:
+      description: Recurso não encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Recurso solicitado não foi encontrado no sistema."
+    ValidationError:
+      description: Erro de validação nos parâmetros enviados
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
