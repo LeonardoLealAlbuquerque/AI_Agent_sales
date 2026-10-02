@@ -1,3 +1,4 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -13,6 +14,8 @@ from app.models.client import Client
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.invoice import Invoice
+from pathlib import Path
+from unittest.mock import patch
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(
@@ -61,3 +64,37 @@ def client(db):
 def db_session(db):
     """Alias para manter compatibilidade com testes antigos que usam db_session"""
     yield db
+
+
+@pytest.fixture(autouse=True)
+def setup_test_environment(tmp_path):
+    """
+    Configura variáveis de ambiente padrão para os testes:
+    - Redireciona a persistência do ChromaDB para um diretório temporário isolado.
+    - Define credenciais mockadas para impedir chamadas acidentais a APIs externas.
+    """
+    chroma_test_dir = str(tmp_path / "chroma_test_data")
+    
+    with patch.dict(
+        os.environ,
+        {
+            "CHROMA_PERSIST_DIRECTORY": chroma_test_dir,
+            "GROQ_API_KEY": "gsk_mock_key_for_testing_purposes_only",
+            "ENV": "testing",
+        },
+        clear=False,
+    ):
+        yield chroma_test_dir
+
+@pytest.fixture
+def isolated_chroma_service(tmp_path):
+    """
+    Fornece uma instância do ChromaDBService 100% isolada e limpa para testes.
+    """
+    from app.services.chromadb_service import ChromaDBService
+    test_dir = str(tmp_path / "isolated_chroma_db")
+    service = ChromaDBService(
+        persist_directory=test_dir,
+        collection_name="test_isolated_kb"
+    )
+    return service

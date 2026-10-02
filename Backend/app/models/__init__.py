@@ -6,6 +6,8 @@ from app.models.client import Client
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.invoice import Invoice
+from app.models.conversation import Conversation
+from app.models.chat_message import ChatMessageRecord
 
 # O __all__ diz explicitamente ao Python o que está sendo exportado por este pacote.
 # Facilita o autocomplete e protege a importação com asterisco (*).
@@ -15,4 +17,6 @@ __all__ = [
     "OrderStatus",
     "OrderItem",
     "Invoice",
+    "Conversation",
+    "ChatMessageRecord",
 ]

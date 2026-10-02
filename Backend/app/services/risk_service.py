@@ -1,7 +1,9 @@
 from datetime import date
 from sqlalchemy.orm import Session
 from app.repositories.invoice_repository import InvoiceRepository
-from app.schemas.risk import RiscoConsolidado, InconsistenciaRegra
+from app.schemas.invoice import InvoiceFilterParams
+from app.schemas.risk import ConsolidatedRisk, RuleInconsistency
+from app.services.invoice_service import InvoiceService
 
 class RiskService:
     
@@ -11,7 +13,7 @@ class RiskService:
         return (hoje - vencimento).days if hoje > vencimento else 0
 
     @staticmethod
-    def consolidate_risk_exposure(db: Session, client_id: int) -> RiscoConsolidado:
+    def consolidate_risk_exposure(db: Session, client_id: int) -> ConsolidatedRisk:
         """
         [T038] Agrega a exposição financeira do cliente, calcula o maior atraso
         e detecta inconsistências de crédito.
@@ -22,12 +24,18 @@ class RiskService:
         exposicao = fatura_repo.calculate_client_exposure(client_id)
         
         # 2. Descobrir o Maior Atraso
-        faturas_vencidas = fatura_repo.get_overdue_invoices(client_id, limit=1000)
-        maior_atraso = 0
-        if faturas_vencidas:
-            # Pega a fatura com a data de vencimento mais antiga
-            fatura_mais_antiga = min(faturas_vencidas, key=lambda f: f.due_date)
-            maior_atraso = RiskService._calculate_days_overdue(fatura_mais_antiga.due_date)
+        faturas_vencidas = InvoiceService.list_invoices(
+            db,
+            InvoiceFilterParams(client_id=client_id, only_overdue=True, limit=100),
+        )
+        maior_atraso = max(
+            (
+                invoice["days_overdue"]
+                for client in faturas_vencidas["clients"]
+                for invoice in client["invoices"]
+            ),
+            default=0,
+        )
             
         # 3. Pedidos Abertos (Preparando a estrutura para quando houver OrderRepository)
         # TODO: Integrar com OrderRepository no futuro
@@ -38,14 +46,14 @@ class RiskService:
         inconsistencias = []
         
         if maior_atraso > 30:
-            inconsistencias.append(InconsistenciaRegra(
+            inconsistencias.append(RuleInconsistency(
                 rule_name="ATRASO_CRITICO",
                 description=f"O cliente possui atraso máximo de {maior_atraso} dias.",
                 severity="ALTA"
             ))
             
-        if exposicao > 50000: # Regra de negócio de exemplo
-            inconsistencias.append(InconsistenciaRegra(
+        if exposicao > 50000:
+            inconsistencias.append(RuleInconsistency(
                 rule_name="EXPOSICAO_ELEVADA",
                 description=f"Exposição financeira de R$ {exposicao:.2f} excede o limite seguro.",
                 severity="MEDIA"
@@ -58,7 +66,7 @@ class RiskService:
         elif any(inc.severity == "MEDIA" for inc in inconsistencias) or maior_atraso > 0:
             nivel_risco = "MEDIO"
             
-        return RiscoConsolidado(
+        return ConsolidatedRisk(
             client_id=client_id,
             total_exposure=exposicao,
             max_overdue_days=maior_atraso,

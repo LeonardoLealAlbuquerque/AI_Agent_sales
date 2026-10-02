@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import date
-from app.schemas.consulta import IdMixin
+from app.schemas.consult import IdMixin
 
-class ItemPedido(IdMixin):
+class OrderItem(IdMixin):
     """Schema para os produtos dentro de um pedido."""
     product_name: str
     quantity: int
@@ -13,7 +13,7 @@ class ItemPedido(IdMixin):
     class Config:
         from_attributes = True
 
-class EntregaInfo(BaseModel):
+class DeliveryInfo(BaseModel):
     """Encapsula a inteligência de logística do pedido."""
     estimated_delivery_date: date
     actual_delivery_date: Optional[date] = None
@@ -26,11 +26,11 @@ class OrderSummary(IdMixin):
     status: str
     created_at: date
     total_amount: float
-    delivery_info: EntregaInfo
+    delivery_info: DeliveryInfo
 
     class Config:
         from_attributes = True
 
 class OrderDetail(OrderSummary):
     """Usado para a visualização completa, herdando o resumo e adicionando itens."""
-    items: List[ItemPedido]
+    items: List[OrderItem]

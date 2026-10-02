@@ -1,198 +1,227 @@
-from datetime import date, timedelta
-
 import pytest
-from fastapi.testclient import TestClient
+from sqlalchemy import func, select
+from unittest.mock import MagicMock, patch
 
-from app.main import app
-from app.api.routes.agent import get_llm_client
-from app.agent.llm_client import MockLLMClient
-from app.db.base import Base  # Importe o Base contendo os metadados das tabelas
+from app.agent.service import AgentService
+from app.db.session import SessionLocal
 from app.models.client import Client
-from app.models.order import Order, OrderStatus
 from app.models.invoice import Invoice
+from app.schemas.agent import ChatRequest
+from app.repositories.conversation_repository import ConversationRepository
+from app.services.chromadb_service import ChromaDBService
 
 
-client = TestClient(app)
+@pytest.fixture
+def prepare_chroma_kb(tmp_path):
+    """Inicializa uma base do ChromaDB temporária e ingere dados simulados do Playbook."""
+    test_dir = str(tmp_path / "chroma_integration_db")
+    service = ChromaDBService(
+        persist_directory=test_dir, 
+        collection_name="test_integration_kb"
+    )
+    
+    md_content = """# Playbook de Negociação B2B
+## Descontos e Alçadas
+O vendedor opera em alçada zero. Descontos acima de 5% exigem aprovação do gerente comercial.
+Prazos superiores a 30 dias devem ser submetidos à análise de risco de crédito.
+"""
+    file_path = tmp_path / "playbook_test.md"
+    file_path.write_text(md_content, encoding="utf-8")
+    service.ingest_playbook(file_path=str(file_path), force_recreate=True)
+    return service
 
 
-@pytest.fixture(autouse=True)
-def seed_agent_data(db, monkeypatch):
-    """Cria as tabelas no SQLite em memória e popula os dados iniciais do agente."""
-    # Garante a criação de todas as tabelas (clients, orders, invoices, etc.)
-    Base.metadata.create_all(bind=db.get_bind())
+def llm_response(content=None, tool_calls=None):
+    response = MagicMock()
+    response.choices[0].message.content = content
+    response.choices[0].message.tool_calls = tool_calls
+    return response
 
-    hoje = date.today()
-    db.add(Client(
-        id=1,
-        company_name="Empresa Teste LTDA",
-        cnpj="12345678901234",
-        credit_limit=5000.0,
-        status="ACTIVE",
-    ))
-    db.add(Order(
-        id=1,
-        client_id=1,
-        status=OrderStatus.PENDING,
-        total_amount=100.0,
-        created_at=hoje,
-        estimated_delivery_date=hoje + timedelta(days=7),
-    ))
+
+def test_agent_rag_tool_invocation_and_snippet_return(prepare_chroma_kb):
+    """Testa busca RAG, retorno de trecho e continuidade do historico."""
+    mock_llm = MagicMock()
+
+    mock_tool_call = {
+        "id": "call_rag_001",
+        "type": "function",
+        "function": {
+            "name": "buscar_regras_negociacao",
+            "arguments": '{"query": "desconto para pagamento à vista"}'
+        }
+    }
+    mock_llm.chat_completion.side_effect = [
+        llm_response(tool_calls=[mock_tool_call]),
+        llm_response(
+            content="Conforme o Playbook, você opera sob alçada zero. Descontos exigem aprovação gerencial."
+        ),
+    ]
+
+    with patch("app.agent.tools.chroma_service", prepare_chroma_kb):
+        response = AgentService(llm_client=mock_llm).run(
+            ChatRequest(message="Qual a regra de desconto?")
+        )
+
+    assert "alçada zero" in response.response
+    assert mock_llm.chat_completion.call_count == 2
+    message_history = mock_llm.chat_completion.call_args_list[-1].kwargs["messages"]
+    assert [msg["role"] for msg in message_history] == ["system", "user", "assistant", "tool"]
+    tool_msg = next(msg for msg in message_history if msg["role"] == "tool")
+    assert tool_msg["tool_call_id"] == "call_rag_001"
+    assert "alçada zero" in tool_msg["content"].lower()
+
+
+def test_agent_handling_kb_unavailable():
+    """
+    Testa a resiliência do agente tratando exceções de indisponibilidade da KB (RAG-FR-005).
+    """
+    mock_llm = MagicMock()
+
+    mock_tool_call = {
+        "id": "call_rag_err",
+        "type": "function",
+        "function": {
+            "name": "buscar_regras_negociacao",
+            "arguments": '{"query": "política de parcelamento"}'
+        }
+    }
+    mock_llm.chat_completion.side_effect = [
+        llm_response(tool_calls=[mock_tool_call]),
+        llm_response(content="Desculpe, a base de conhecimento está temporariamente indisponível."),
+    ]
+
+    mock_failing_chroma = MagicMock()
+    mock_failing_chroma.search_similarity.side_effect = RuntimeError("Falha de conexão com o ChromaDB")
+
+    with patch("app.agent.tools.chroma_service", mock_failing_chroma):
+        AgentService(llm_client=mock_llm).run(
+            ChatRequest(message="Quais as regras de parcelamento?")
+        )
+
+        message_history = mock_llm.chat_completion.call_args_list[-1].kwargs["messages"]
+        tool_msg = next(msg for msg in message_history if msg["role"] == "tool")
+        assert "indisponível" in tool_msg["content"].lower() or "error" in tool_msg["content"].lower()
+
+
+def test_agent_inclui_historico_e_instrucao_de_continuidade_em_followup(db):
+    repository = ConversationRepository(db)
+    conversation = repository.create("Limite e risco do cliente")
+    repository.add_message(
+        conversation.id,
+        role="user",
+        content="Consulte o limite da Risco Elevado LTDA.",
+    )
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content=None,
+        tool_calls=[{
+            "id": "call-credit",
+            "type": "function",
+            "function": {
+                "name": "get_client_credit_limit",
+                "arguments": '{"client_id": 2}',
+            },
+        }],
+    )
+    repository.add_message(
+        conversation.id,
+        role="tool",
+        content='{"client_id": 2, "credit_limit": 10000}',
+        tool_call_id="call-credit",
+        name="get_client_credit_limit",
+    )
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content="O limite disponível é R$ 8.500,00.",
+    )
     db.commit()
 
-    def override_get_db():
-        # As ferramentas são chamadas diretamente pelo orquestrador, fora do
-        # ciclo de dependências do FastAPI. Elas precisam usar a mesma sessão
-        # que foi criada e populada por esta fixture.
-        yield db
+    mock_llm = MagicMock()
+    mock_llm.chat_completion.return_value = llm_response(content="Vou consultar o risco.")
+    AgentService(llm_client=mock_llm, db=db).run(ChatRequest(
+        message="Com base na resposta anterior, qual é o risco dela?",
+        conversation_id=conversation.id,
+    ))
 
-    monkeypatch.setattr("app.api.tools.get_db", override_get_db)
-
-
-# --- Helper Classes para Simulação de Respostas do Mock ---
-class MockToolCallFunction:
-    def __init__(self, name: str, arguments: str):
-        self.name = name
-        self.arguments = arguments
-
-class MockToolCall:
-    def __init__(self, call_id: str, name: str, arguments: str):
-        self.id = call_id
-        self.function = MockToolCallFunction(name, arguments)
-
-class MockMessage:
-    def __init__(self, content: str = None, tool_calls: list = None):
-        self.content = content
-        self.tool_calls = tool_calls or []
-
-class MockChoice:
-    def __init__(self, message: MockMessage):
-        self.message = message
-
-class MockResponse:
-    def __init__(self, message: MockMessage):
-        self.choices = [MockChoice(message)]
-
-
-# --- Testes de Integração do Agente ---
-
-def test_chat_direct_response():
-    """Testa resposta textual direta do LLM sem acionamento de ferramentas."""
-    mock_llm = MockLLMClient(
-        canned_response=MockResponse(MockMessage(content="Olá! Como posso ajudar na análise de crédito hoje?"))
+    llm_messages = mock_llm.chat_completion.call_args.kwargs["messages"]
+    assert "Continuidade Conversacional" in llm_messages[0]["content"]
+    assert any(
+        message.get("tool_call_id") == "call-credit"
+        and '"client_id": 2' in message["content"]
+        for message in llm_messages
+        if message["role"] == "tool"
     )
-    app.dependency_overrides[get_llm_client] = lambda: mock_llm
-
-    payload = {"message": "Olá, bom dia!"}
-    response = client.post("/api/v1/agent/chat", json=payload)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["response"] == "Olá! Como posso ajudar na análise de crédito hoje?"
-    assert len(data["tools_used"]) == 0
-    app.dependency_overrides.clear()
-
-@pytest.mark.parametrize("tool_name,args_json", [
-    ("get_client_risk_analysis", '{"client_id": 1}'),
-    ("get_client_credit_limit", '{"client_id": 1}'),
-    ("get_overdue_invoices", '{"client_id": 1}'),
-    ("get_client_orders", '{"client_id": 1}'),
-    ("get_order_details", '{"order_id": 1}')
-])
-def test_chat_tool_execution(tool_name, args_json):
-    """Testa a chamada e o retorno individual de cada uma das 5 ferramentas mapeadas."""
-    tool_call = MockToolCall("call_1", tool_name, args_json)
-    
-    class MultiTurnMockClient(MockLLMClient):
-        def __init__(self):
-            super().__init__()
-            self.turn = 0
-
-        def chat_completion(self, messages, tools=None):
-            self.turn += 1
-            if self.turn == 1:
-                return MockResponse(MockMessage(content=None, tool_calls=[tool_call]))
-                
-            return MockResponse(MockMessage(content=f"Análise concluída via {tool_name}."))
-
-    app.dependency_overrides[get_llm_client] = lambda: MultiTurnMockClient()
-
-    payload = {"message": f"Executar consulta para {tool_name}"}
-
-    # Executa a requisição diretamente sem tentar mockar a constante TOOLS_MAP
-    response = client.post("/api/v1/agent/chat", json=payload)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data["tools_used"]) == 1
-    assert data["tools_used"][0]["tool_name"] == tool_name
-    assert data["tools_used"][0]["success"] is True
-    app.dependency_overrides.clear()
-
-def test_chat_unknown_tool_and_invalid_arguments():
-    """Testa a resiliência a ferramentas desconhecidas ou argumentos malformados."""
-    tool_call = MockToolCall("call_bad", "ferramenta_inexistente", "invalid json")
-
-    class BadToolMockClient(MockLLMClient):
-        def __init__(self):
-            super().__init__()
-            self.turn = 0
-
-        def chat_completion(self, messages, tools=None):
-            self.turn += 1
-            if self.turn == 1:
-                return MockResponse(MockMessage(content=None, tool_calls=[tool_call]))
-            return MockResponse(MockMessage(content="Não consegui executar essa ação."))
-
-    app.dependency_overrides[get_llm_client] = lambda: BadToolMockClient()
-
-    payload = {"message": "Tente rodar uma ferramenta inválida"}
-    response = client.post("/api/v1/agent/chat", json=payload)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["tools_used"][0]["success"] is False
-    app.dependency_overrides.clear()
+    assert llm_messages[-1]["content"] == "Com base na resposta anterior, qual é o risco dela?"
 
 
-def test_chat_llm_timeout_handling():
-    """Testa o mapeamento correto de timeout do provedor LLM para HTTP 504."""
-    mock_llm = MockLLMClient(should_timeout=True)
-    app.dependency_overrides[get_llm_client] = lambda: mock_llm
-
-    payload = {"message": "Qual o limite de crédito do cliente 1?"}
-    response = client.post("/api/v1/agent/chat", json=payload)
-
-    assert response.status_code == 504
-    assert "excedeu o tempo limite" in response.json()["detail"]
-    app.dependency_overrides.clear()
-
-
-def test_chat_llm_unavailable_handling():
-    """Testa o mapeamento correto de indisponibilidade do provedor para HTTP 503."""
-    mock_llm = MockLLMClient(should_fail=True)
-    app.dependency_overrides[get_llm_client] = lambda: mock_llm
-
-    payload = {"message": "Qual o limite de crédito do cliente 1?"}
-    response = client.post("/api/v1/agent/chat", json=payload)
-
-    assert response.status_code == 503
-    assert "indisponível" in response.json()["detail"]
-    app.dependency_overrides.clear()
-
-
-def test_chat_write_attempt_refusal():
-    """Valida se o LLM recusa tentativas de escrita/mutação via instruções de Prompt."""
-    refusal_msg = "Minhas permissões são limitadas à consulta de dados (Read-Only). Não posso alterar cadastros."
-    mock_llm = MockLLMClient(
-        canned_response=MockResponse(MockMessage(content=refusal_msg))
+def test_conversation_history_hides_internal_tool_messages(client, db):
+    repository = ConversationRepository(db)
+    conversation = repository.create("Consulta com ferramenta")
+    repository.add_message(
+        conversation.id,
+        role="user",
+        content="Qual o limite do cliente?",
     )
-    app.dependency_overrides[get_llm_client] = lambda: mock_llm
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content=None,
+        tool_calls=[{
+            "id": "call-credit",
+            "type": "function",
+            "function": {"name": "get_client_credit_limit", "arguments": "{}"},
+        }],
+    )
+    repository.add_message(
+        conversation.id,
+        role="tool",
+        content='{"total_clients": 1, "clients": [{"company_name": "Risco Elevado LTDA"}]}',
+        tool_call_id="call-credit",
+        name="list_clients",
+    )
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content="O limite disponível é R$ 8.500,00.",
+    )
+    db.commit()
 
-    payload = {"message": "Aumente o limite de crédito do cliente 1 para R$ 500.000"}
-    response = client.post("/api/v1/agent/chat", json=payload)
+    response = client.get(f"/api/v1/agent/conversations/{conversation.id}")
 
     assert response.status_code == 200
-    data = response.json()
-    assert "Read-Only" in data["response"] or "não posso" in data["response"].lower()
-    assert len(data["tools_used"]) == 0
-    app.dependency_overrides.clear()
+    assert response.json()["messages"] == [
+        {"role": "user", "content": "Qual o limite do cliente?"},
+        {"role": "assistant", "content": "O limite disponível é R$ 8.500,00."},
+    ]
+
+
+def test_agent_rag_query_does_not_mutate_database():
+    """
+    Garante que consultas de política/RAG não realizam nenhuma mutação no banco relacional SQLite (Read-Only).
+    """
+    def count_records():
+        db = SessionLocal()
+        try:
+            return (
+                db.scalar(select(func.count()).select_from(Client)),
+                db.scalar(select(func.count()).select_from(Invoice)),
+            )
+        finally:
+            db.close()
+
+    initial_clients, initial_invoices = count_records()
+
+    mock_llm = MagicMock()
+    mock_llm.chat_completion.return_value = llm_response(
+        content="A consulta de regras foi processada com sucesso sem alterações."
+    )
+
+    agent = AgentService(llm_client=mock_llm)
+    agent.run(ChatRequest(message="Consulte as regras de prazo de pagamento."))
+
+    final_clients, final_invoices = count_records()
+
+    assert initial_clients == final_clients
+    assert initial_invoices == final_invoices

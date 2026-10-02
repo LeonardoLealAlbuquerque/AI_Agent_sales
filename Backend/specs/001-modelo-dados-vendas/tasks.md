@@ -139,6 +139,88 @@
 - T051 pode ser executada em paralelo com T048-T050; T052 depende de T050-T051; T053 depende de T052.
 - T054 depende de T049-T053; T055 pode ser atualizado em paralelo com T054 e deve registrar o fluxo validado.
 
+## Phase 8: Frontend - Interface de chat (React, TypeScript, Vite e Tailwind)
+
+**Purpose**: Criar a aplicacao web em `frontend/`, fora da pasta `Backend/`, e conecta-la ao fluxo de conversas persistidas e ao endpoint do agente.
+
+**Goal**: Entregar uma interface basica e responsiva com sidebar de navegacao e uma area de chat funcional, permitindo iniciar uma conversa, selecionar conversas antigas e trocar mensagens com o agente.
+
+**Independent Test**: Com o backend em execucao, abrir a aplicacao frontend, criar uma nova conversa, enviar uma mensagem, receber a resposta do agente, selecionar uma conversa existente na sidebar e confirmar que seu historico e carregado sem recarregar a pagina.
+
+- [X] T056 Inicializar o projeto `frontend/` com Vite, React, TypeScript, Tailwind CSS e scripts de desenvolvimento, build e teste; manter configuracoes e dependencias isoladas do `Backend/`.
+- [X] T057 Criar a camada de cliente HTTP tipada em `frontend/src/services/api.ts` para configurar a URL base do backend por variavel de ambiente e consumir `GET /api/v1/agent/conversations`, `GET /api/v1/agent/conversations/{conversation_id}` e `POST /api/v1/agent/chat`.
+- [X] T058 Definir os tipos TypeScript de `ConversationSummary`, `ConversationHistory`, `ChatMessage`, `ChatRequest` e `ChatResponse`, alinhados aos schemas retornados pelo backend e sem duplicar regras de negocio no frontend.
+- [X] T059 Implementar o layout principal em `frontend/src/App.tsx` com sidebar contendo o botao de nova conversa e a lista do historico, alem da area de chat com cabecalho, mensagens e compositor fixado na parte inferior.
+- [X] T060 Implementar a selecao de conversas antigas na sidebar, carregando o historico pelo identificador e destacando a conversa ativa; ordenar e apresentar titulo, data ou estado de carregamento de forma legivel.
+- [X] T061 Implementar o fluxo de nova conversa e envio de mensagem, preservando o `conversation_id` retornado pelo backend, adicionando mensagens do usuario a direita e respostas do agente a esquerda, com bloqueio de envio vazio ou duplicado durante a requisicao.
+- [X] T062 Adicionar estados de carregamento, erro, lista vazia, resposta indisponivel e retry para carregamento do historico e envio de mensagens, sem expor detalhes internos do backend ao usuario.
+- [X] T063 Garantir acessibilidade e responsividade basica: controles acionaveis por teclado, labels para input e botoes, foco apos envio, sidebar utilizavel em telas estreitas e mensagens sem overflow horizontal.
+- [X] T064 Criar testes do frontend para renderizacao da sidebar, nova conversa, selecao de historico, envio com `conversation_id`, estados de erro e alinhamento visual das mensagens; mockar a API e nao depender de um LLM real.
+- [ ] T065 Documentar em `frontend/README.md` a instalacao, variaveis de ambiente, comandos de desenvolvimento e build, URL esperada do backend, CORS necessario e fluxo manual de validacao ponta a ponta.
+
+### Dependencies & Execution Order (Frontend)
+
+- T056 bloqueia T057-T065 e deve ser concluida antes de qualquer implementacao de componente.
+- T057-T058 podem ser executadas em paralelo; T059 depende da estrutura do projeto e dos tipos compartilhados.
+- T060-T062 dependem da camada de API e do estado principal do chat; T063 pode ser executada em paralelo com T060-T062.
+- T064 depende dos componentes e fluxos implementados; T065 deve registrar o comportamento validado apos o build.
+- A validacao ponta a ponta depende de T053 e exige backend e frontend executando separadamente.
+
+### Frontend Acceptance Criteria
+
+- A aplicacao inicia a partir de `frontend/` com os scripts documentados e gera build de producao sem erros de TypeScript.
+- A sidebar permite iniciar uma conversa e selecionar qualquer conversa retornada pelo backend.
+- O chat envia apenas o texto e o identificador de conversa suportados pelo contrato, exibe a resposta retornada e preserva o historico selecionado.
+- Mensagens do agente ficam alinhadas a esquerda e mensagens do usuario a direita, sem depender de texto codificado como regra de negocio.
+- Falhas de rede, respostas 4xx/5xx e listas vazias possuem estados visiveis e recuperaveis.
+- Nenhuma chave de provedor LLM ou credencial do backend e incluida no bundle do frontend.
+
+## Phase 9: Convergence - Base de Conhecimento RAG com ChromaDB
+
+**Purpose**: Implementar a consulta semantica das politicas B2B do playbook como uma nova capacidade somente leitura do agente, preservando a separacao entre ingestao, armazenamento vetorial, tool calling e orquestracao.
+
+**Source of truth**: `docs/playbook_negociacao_b2b.md`, contendo as regras de alçada zero, retencao, cobranca, escalonamento e simulacao de Card Pipefy. O documento atualmente existente em `app/docs/playbook_negociacao_b2b.md` deve ser promovido ou sincronizado para o caminho canonico sem manter duas fontes divergentes.
+
+**Traceability requirements**:
+
+- **RAG-FR-001**: O sistema DEVE ingerir o playbook corporativo em Markdown e preservar o contexto dos cabecalhos nos fragmentos.
+- **RAG-FR-002**: O sistema DEVE manter uma colecao ChromaDB persistida localmente, reutilizavel entre reinicios, com identificador estavel e metadados de origem.
+- **RAG-FR-003**: O agente DEVE consultar a base semantica para perguntas sobre politicas B2B antes de formular orientacoes, sem inventar regras ausentes na KB.
+- **RAG-FR-004**: A busca semantica DEVE ser exposta como tool LangChain com descricao, entrada tipada, limite de resultados e retorno serializavel.
+- **RAG-FR-005**: A integracao RAG DEVE preservar o modo somente leitura, nao alterar dados comerciais e nao expor credenciais ou caminhos sensiveis.
+- **RAG-SC-001**: A ingestao produz fragmentos nao vazios, identificados pela origem e pelo cabecalho Markdown correspondente.
+- **RAG-SC-002**: Uma consulta sobre alçada zero, retencao ou escalonamento retorna trechos relevantes do playbook por meio da nova tool.
+- **RAG-SC-003**: O chat do agente usa a nova tool em uma consulta de politica e continua respondendo com o contrato atual de `POST /api/v1/agent/chat`.
+
+- [X] T066 [P] Consolidar a fonte de verdade em `docs/playbook_negociacao_b2b.md`, migrando ou sincronizando `app/docs/playbook_negociacao_b2b.md` sem duplicar conteudo divergente, e documentar no proprio arquivo a versao/origem usada pela ingestao (RAG-FR-001, RAG-SC-001, missing)
+- [X] T067 [P] Adicionar `chromadb`, `langchain-text-splitters` e `langchain-core` em `requirements.txt`, fixando versoes compativeis com Python 3.10 e documentando a instalacao no quickstart (RAG-FR-002, RAG-FR-004, plan: dependencias, missing)
+- [X] T068 Implementar `app/services/chromadb_service.py` com leitura UTF-8 do Markdown, `MarkdownTextSplitter` configurado para preservar cabecalhos, metadados de origem/secao, colecao estavel e persistencia local configuravel fora do codigo-fonte (RAG-FR-001, RAG-FR-002, Constituição II, missing)
+- [X] T069 Implementar no `ChromaDBService` a ingestao idempotente do playbook, evitando duplicacao de documentos em execucoes repetidas, validando fragmentos vazios e permitindo recriacao controlada da colecao sem alterar dados do dominio (RAG-FR-001, RAG-FR-002, RAG-FR-005, missing)
+- [X] T070 [P] Criar testes unitarios em `app/tests/unit/test_chromadb_service.py` cobrindo leitura por cabecalhos, metadados de secao, fragmentos nao vazios, persistencia configurada, ingestao idempotente e isolamento com uma colecao/cliente Chroma de teste (RAG-SC-001, RAG-FR-002, Constituição V, missing)
+- [X] T071 Implementar funcao de similaridade em `app/services/chromadb_service.py` e expo-la como `@tool` LangChain em `app/agent/tools.py`, com consulta obrigatoria, `top_k` limitado, retorno de conteudo/metadados/distancias e erro explicito quando a KB nao estiver disponivel (RAG-FR-003, RAG-FR-004, Constituição IV, missing)
+- [X] T072 Atualizar `app/agent/prompts.py` e `app/agent/service.py` para registrar a tool de busca semantica no fluxo de tool calling e orientar o agente a consultar o playbook para alçada, retencao, negociacao, descontos, parcelamento e escalonamento, distinguindo politica recuperada de dado transacional (RAG-FR-003, RAG-FR-005, partial)
+- [X] T073 [P] Criar testes de integracao em `app/tests/integration/test_agent_chat.py` para uma consulta de politica com cliente LLM mockado, verificando chamada da tool RAG, retorno de trecho relevante, continuidade do historico, tratamento de KB indisponivel e ausencia de mutacao no banco (RAG-SC-002, RAG-SC-003, RAG-FR-005, missing)
+- [X] T074 Atualizar `app/tests/conftest.py`, configuracao e documentacao de execucao para isolar o diretorio/colecao Chroma nos testes, impedir dependencia de rede ou credenciais externas e incluir comando de ingestao inicial no quickstart (RAG-FR-002, RAG-SC-001, Constituição V, missing)
+- [X] T075 Executar a validacao final da feature com `pytest`, instalacao limpa das dependencias, ingestao repetida, consulta semantica e `POST /api/v1/agent/chat`, registrando no quickstart o criterio de aceite e qualquer limitacao de modelo de embedding (RAG-SC-001, RAG-SC-002, RAG-SC-003, missing)
+
+### Dependencies & Execution Order (RAG)
+
+- T066 e T067 podem ser preparados em paralelo; T068 depende de T066 e T067.
+- T069 depende de T068 e bloqueia T070, T071 e T074.
+- T070 pode ser executada em paralelo com T071 apos T069.
+- T071 depende de T068-T069 e bloqueia T072.
+- T072 depende de T071 e da infraestrutura existente de T050/T049; T073 depende de T072.
+- T074 pode ser executada em paralelo com T072-T073, mas deve estar concluida antes de T075.
+- T075 depende de T066-T074 e e o aceite integrado da nova capacidade RAG.
+
+### RAG Acceptance Criteria
+
+- A ingestao usa exclusivamente `docs/playbook_negociacao_b2b.md` como fonte canonica e conserva o cabecalho de cada fragmento nos metadados.
+- A colecao ChromaDB permanece disponivel apos reiniciar o processo e uma segunda ingestao nao duplica os fragmentos.
+- A tool LangChain aceita uma pergunta em linguagem natural e retorna os trechos mais similares com origem e secao identificaveis.
+- O agente consulta a KB para regras de negociacao e declara quando uma resposta depende de politica recuperada, sem usar a busca semantica para substituir as tools transacionais.
+- Testes unitarios e de integracao executam sem rede, sem chave de LLM real, sem credenciais Chroma externas e sem mutar clientes, pedidos ou faturas.
+
 ## Constitutional Gates
 
 - SQLAlchemy 2.0 tipado com `Mapped`/`mapped_column` e Alembic.

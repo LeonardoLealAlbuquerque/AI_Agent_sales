@@ -71,3 +71,16 @@ class ChatResponse(BaseModel):
         default=None, 
         description="Mensagem de erro amigável e publicável (sem detalhes sensíveis de infraestrutura/banco)."
     )
+
+
+class ConversationSummary(BaseModel):
+    conversation_id: str
+    title: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ConversationHistory(BaseModel):
+    conversation_id: str
+    title: str
+    messages: List[ChatMessage]

@@ -35,16 +35,19 @@ class RealLLMClient(BaseLLMClient):
         )
         self.model = settings.LLM_MODEL
 
-    def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> Any:
+    def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, stream_response: bool = False) -> Any:
         try:
             kwargs: Dict[str, Any] = {
                 "model": self.model,
                 "messages": messages,
                 "max_tokens": settings.LLM_MAX_TOKENS,
+                "stream": stream_response
             }
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
+                kwargs["parallel_tool_calls"] = True
+                kwargs["stream"] = False  
 
             response = self.client.chat.completions.create(**kwargs)
             return response
