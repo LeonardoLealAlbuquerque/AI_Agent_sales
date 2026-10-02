@@ -2,13 +2,13 @@ from datetime import date
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.repositories.order_repository import OrderRepository
-from app.schemas.order import OrderSummary, OrderDetail, EntregaInfo, ItemPedido
+from app.schemas.order import OrderSummary, OrderDetail, DeliveryInfo, OrderItem
 from app.api.errors import NotFoundException
 
 class OrderService:
     
     @staticmethod
-    def _calculate_logistics(previsao: date, entrega_real: Optional[date]) -> EntregaInfo:
+    def _calculate_logistics(previsao: date, entrega_real: Optional[date]) -> DeliveryInfo:
         """Calcula o status de atraso baseado nas datas."""
         hoje = date.today()
         atraso_dias = 0
@@ -22,7 +22,7 @@ class OrderService:
             if hoje > previsao:
                 atraso_dias = (hoje - previsao).days
                 
-        return EntregaInfo(
+        return DeliveryInfo(
             estimated_delivery_date=previsao,
             actual_delivery_date=entrega_real,
             is_delayed=atraso_dias > 0,
@@ -65,7 +65,7 @@ class OrderService:
         info_entrega = OrderService._calculate_logistics(pedido.estimated_delivery_date, pedido.delivery_date)
         
         itens_schema = [
-            ItemPedido(
+            OrderItem(
                 id=item.id,
                 product_name=item.product_name,
                 quantity=item.quantity,

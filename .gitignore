@@ -1,0 +1,47 @@
+# Python environments and generated files
+**/.venv/
+**/venv/
+**/env/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Python test and tooling caches
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node.js dependencies and build output
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/.vite/
+**/coverage/
+
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Local databases and persisted vector store
+*.db
+*.sqlite
+*.sqlite3
+**/data/chroma/
+
+# Logs and operating system files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.DS_Store
+Thumbs.db
+
+# IDE metadata
+.idea/

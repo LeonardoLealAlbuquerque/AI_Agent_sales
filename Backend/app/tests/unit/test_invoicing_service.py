@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from app.services.invoice_service import InvoiceService
 from app.services.risk_service import RiskService
 from app.models.invoice import InvoiceStatus
+from app.schemas.invoice import InvoiceFilterParams
 
 # ==========================================
 # Testes de Tempo e Atraso (FaturaService)
@@ -39,16 +40,17 @@ def test_resumo_financeiro_pagamento_e_cancelamento(mock_fatura_repo):
 # Testes de Inconsistências (RiskService)
 # ==========================================
 @patch("app.services.risk_service.InvoiceRepository")
-def test_consolidar_risco_gera_inconsistencias(mock_invoice_repo):
+@patch("app.services.risk_service.InvoiceService.list_invoices")
+def test_consolidar_risco_gera_inconsistencias(mock_list_invoices, mock_invoice_repo):
     mock_db = MagicMock()
     
     # 1. Simula uma exposição absurdamente alta (> 50.000)
     mock_invoice_repo.return_value.calculate_client_exposure.return_value = 60000.0
     
     # 2. Simula uma fatura vencida há 40 dias (gera atraso crítico > 30)
-    fatura_antiga = MagicMock()
-    fatura_antiga.due_date = date.today() - timedelta(days=40)
-    mock_invoice_repo.return_value.get_overdue_invoices.return_value = [fatura_antiga]    
+    mock_list_invoices.return_value = {
+        "clients": [{"invoices": [{"days_overdue": 40}]}],
+    }
     risco = RiskService.consolidate_risk_exposure(mock_db, client_id=1)
     
     assert risco.total_exposure == 60000.0
@@ -58,3 +60,7 @@ def test_consolidar_risco_gera_inconsistencias(mock_invoice_repo):
     regras_acionadas = [inc.rule_name for inc in risco.inconsistencies]
     assert "ATRASO_CRITICO" in regras_acionadas
     assert "EXPOSICAO_ELEVADA" in regras_acionadas
+    mock_list_invoices.assert_called_once()
+    db_argument, filters = mock_list_invoices.call_args.args
+    assert db_argument is mock_db
+    assert filters == InvoiceFilterParams(client_id=1, only_overdue=True, limit=100)

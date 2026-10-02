@@ -1,9 +1,65 @@
 from datetime import date
+from typing import Any
 from sqlalchemy.orm import Session
+from app.schemas.invoice import InvoiceFilterParams
 from app.repositories.invoice_repository import InvoiceRepository
 from app.models.invoice import InvoiceStatus
 
 class InvoiceService:
+    @staticmethod
+    def _calculate_days_overdue(vencimento: date) -> int:
+        hoje = date.today()
+        if hoje > vencimento:
+            return (hoje - vencimento).days
+        return 0
+    
+    @staticmethod
+    def list_invoices(db: Session, filters: InvoiceFilterParams) -> dict[str, Any]:
+        """
+        Lista faturas agrupadas por cliente com suporte a busca genérica,
+        filtros por status, cliente específico e flag de faturas vencidas.
+        """
+        rows = InvoiceRepository(db).get_filtered_invoices(filters)
+        
+        clients: dict[int, dict[str, Any]] = {}
+        total_amount = 0.0
+        total_overdue_amount = 0.0
+
+        for client, invoice in rows:
+            atraso = InvoiceService._calculate_days_overdue(invoice.due_date)
+            is_critical = atraso > 30
+
+            client_data = clients.setdefault(
+                client.id,
+                {
+                    "client_id": client.id,
+                    "client_name": client.company_name,
+                    "open_balance": 0.0,
+                    "invoices": [],
+                },
+            )
+            
+            client_data["open_balance"] += invoice.amount
+            client_data["invoices"].append({
+                "id": invoice.id,
+                "amount": invoice.amount,
+                "due_date": invoice.due_date,
+                "status": invoice.status,
+                "days_overdue": atraso,
+                "critical_status": is_critical
+            })
+            
+            total_amount += invoice.amount
+            if atraso > 0:
+                total_overdue_amount += invoice.amount
+
+        return {
+            "total_clients": len(clients),
+            "total_invoices_count": len(rows),
+            "total_amount": total_amount,
+            "total_overdue_amount": total_overdue_amount,
+            "clients": list(clients.values()),
+        }
     
     @staticmethod
     def _calculate_days_overdue(vencimento: date) -> int:
@@ -12,36 +68,6 @@ class InvoiceService:
         if hoje > vencimento:
             return (hoje - vencimento).days
         return 0
-
-    @staticmethod
-    def list_overdue_invoices(db: Session, client_id: int, skip: int = 0, limit: int = 100) -> dict:
-        """
-        [T037] Busca faturas vencidas e calcula os estados derivados 
-        (dias de atraso e o saldo total devedor dessa listagem).
-        """
-        repo = InvoiceRepository(db)
-        faturas_db = repo.get_overdue_invoices(client_id, skip, limit)
-        
-        faturas_processadas = []
-        saldo_vencido_total = 0.0
-        
-        for f in faturas_db:
-            atraso = InvoiceService._calculate_days_overdue(f.due_date)
-            saldo_vencido_total += f.amount
-            
-            faturas_processadas.append({
-                "id": f.id,
-                "amount": f.amount,
-                "due_date": f.due_date,
-                "days_overdue": atraso,
-                "critical_status": atraso > 30 # Derivação de regra de negócio (ex: mais de 30 dias é crítico)
-            })
-            
-        return {
-            "client_id": client_id,
-            "total_overdue_balance": saldo_vencido_total,
-            "overdue_invoices": faturas_processadas
-        }
 
     @staticmethod
     def generate_financial_summary(db: Session, client_id: int, data_inicio: date, data_fim: date) -> dict:
