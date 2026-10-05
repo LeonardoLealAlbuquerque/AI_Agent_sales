@@ -1,12 +1,33 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from datetime import date
 from app.api.dependencies import get_read_only_db
+from app.db.session import get_db
 from app.services.invoice_service import InvoiceService
-from app.schemas.invoice import InvoiceFilterParams, BillingSummaryResponse
+from app.schemas.invoice import (
+    BillingSummaryResponse,
+    InvoiceCreate,
+    InvoiceFilterParams,
+    InvoiceResponse,
+)
 
 router = APIRouter(prefix="/clients/{client_id}/invoices", tags=["Faturamento"])
 router_all = APIRouter(prefix="/invoices", tags=["Faturamento"])
+
+
+@router_all.post(
+    "",
+    response_model=InvoiceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cadastrar fatura",
+    description="Cria uma fatura para um cliente existente.",
+)
+def create_invoice(
+    payload: InvoiceCreate,
+    db: Session = Depends(get_db),
+) -> InvoiceResponse:
+    """Cria uma fatura e retorna seus dados."""
+    return InvoiceService.create_invoice(db, payload)
 
 
 @router_all.get("/invoices")

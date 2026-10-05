@@ -17,6 +17,9 @@ class ConversationRepository:
     def get(self, conversation_id: str) -> Conversation | None:
         return self.db.get(Conversation, conversation_id)
 
+    def delete(self, conversation: Conversation) -> None:
+        self.db.delete(conversation)
+
     def create(self, title: str) -> Conversation:
         conversation = Conversation(title=title)
         self.db.add(conversation)

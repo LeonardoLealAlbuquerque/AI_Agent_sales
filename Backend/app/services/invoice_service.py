@@ -3,9 +3,33 @@ from typing import Any
 from sqlalchemy.orm import Session
 from app.schemas.invoice import InvoiceFilterParams
 from app.repositories.invoice_repository import InvoiceRepository
+from app.repositories.client_repository import ClientRepository
+from app.schemas.invoice import InvoiceCreate, InvoiceResponse
+from app.api.errors import NotFoundException, BusinessRuleException
+from sqlalchemy.exc import IntegrityError
 from app.models.invoice import InvoiceStatus
 
 class InvoiceService:
+    @staticmethod
+    def create_invoice(db: Session, invoice_data: InvoiceCreate) -> InvoiceResponse:
+        """Valida o cliente, persiste a fatura e retorna sua representação pública."""
+        if not ClientRepository(db).get_by_id(invoice_data.client_id):
+            raise NotFoundException(
+                f"Cliente de ID {invoice_data.client_id} não encontrado no sistema."
+            )
+
+        try:
+            invoice = InvoiceRepository(db).create(invoice_data)
+            db.commit()
+            db.refresh(invoice)
+        except IntegrityError as exc:
+            db.rollback()
+            raise BusinessRuleException(
+                "Não foi possível cadastrar a fatura. Verifique os dados informados."
+            ) from exc
+
+        return InvoiceResponse.model_validate(invoice)
+
     @staticmethod
     def _calculate_days_overdue(vencimento: date) -> int:
         hoje = date.today()

@@ -15,12 +15,15 @@ export default function App() {
 
   const [isLoadingSidebar, setIsLoadingSidebar] = useState(false);
   const [sidebarError, setSidebarError] = useState<string | null>(null);
+  const [conversationActionError, setConversationActionError] = useState<string | null>(null);
+  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [conversationReloadKey, setConversationReloadKey] = useState(0);
+  const [conversationPendingDeletion, setConversationPendingDeletion] = useState<ConversationSummary | null>(null);
   const preserveMessagesForConversation = useRef<string | null>(null);
 
   const fetchConversations = async (silent = false) => {
@@ -29,7 +32,10 @@ export default function App() {
       if (!silent) setIsLoadingSidebar(true);
 
       const data = await api.getConversations();
-      const sorted = data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const sorted = data.sort((a, b) => (
+        new Date(b.updated_at || b.created_at).getTime()
+        - new Date(a.updated_at || a.created_at).getTime()
+      ));
       setConversations(sorted);
     } catch (error) {
       console.error('Erro:', error);
@@ -97,6 +103,33 @@ export default function App() {
     setIsMobileSidebarOpen(false);
   };
 
+  const handleDeleteConversation = (id: string) => {
+    const conversation = conversations.find((item) => item.id === id);
+    if (conversation) setConversationPendingDeletion(conversation);
+  };
+
+  const handleConfirmDeleteConversation = async () => {
+    if (!conversationPendingDeletion) return;
+    const id = conversationPendingDeletion.id;
+    setDeletingConversationId(id);
+    setConversationActionError(null);
+    try {
+      await api.deleteConversation(id);
+      setConversations((previous) => previous.filter((item) => item.id !== id));
+      setConversationPendingDeletion(null);
+      if (currentConversationId === id) {
+        setMessages([]);
+        setChatError(null);
+        navigate('/', { replace: true });
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      setConversationActionError('Não foi possível excluir a conversa. Tente novamente.');
+    } finally {
+      setDeletingConversationId(null);
+    }
+  };
+
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || isLoadingChat) return;
 
@@ -162,14 +195,58 @@ export default function App() {
         currentConversationId={currentConversationId}
         isLoading={isLoadingSidebar}
         error={sidebarError}
+        actionError={conversationActionError}
+        deletingConversationId={deletingConversationId}
         isOpen={isMobileSidebarOpen}
         isDesktopOpen={isDesktopSidebarOpen}
         onToggleDesktop={() => setIsDesktopSidebarOpen((isOpen) => !isOpen)}
         onClose={() => setIsMobileSidebarOpen(false)}
         onSelectConversation={handleSelectConversation}
+        onDeleteConversation={handleDeleteConversation}
         onNewConversation={handleNewConversation}
         onRetry={() => fetchConversations()}
       />
+
+      {conversationPendingDeletion && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deletingConversationId) {
+              setConversationPendingDeletion(null);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-conversation-title"
+            className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-5 text-gray-900 shadow-xl"
+          >
+            <h2 id="delete-conversation-title" className="text-base font-semibold">
+              Deseja excluir a conversa?
+            </h2>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                disabled={deletingConversationId !== null}
+                onClick={() => setConversationPendingDeletion(null)}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={deletingConversationId !== null}
+                onClick={handleConfirmDeleteConversation}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:cursor-wait disabled:opacity-50"
+              >
+                {deletingConversationId ? 'Excluindo...' : 'Confirmar'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col relative h-full w-full">
         <header className="bg-zinc-800 border-b border-gray-200 px-4 md:px-6 py-4 flex items-center justify-between shadow-sm z-10">

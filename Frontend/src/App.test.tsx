@@ -12,6 +12,7 @@ vi.mock('./services/api', () => ({
   api: {
     getConversations: vi.fn(),
     getConversationHistory: vi.fn(),
+    deleteConversation: vi.fn(),
     sendMessage: vi.fn(),
   }
 }));
@@ -47,6 +48,29 @@ describe('Integração do App (Frontend)', () => {
     expect(await screen.findByText('Minha primeira dúvida')).toBeInTheDocument();
   });
 
+  it('ordena e mostra a data da última atualização da conversa', async () => {
+    vi.mocked(api.getConversations).mockResolvedValue([
+      {
+        id: 'old-conversation',
+        title: 'Conversa atualizada recentemente',
+        created_at: '2026-10-01T12:00:00.000Z',
+        updated_at: '2026-10-03T12:00:00.000Z',
+      },
+      {
+        id: 'new-conversation',
+        title: 'Conversa criada depois',
+        created_at: '2026-10-02T12:00:00.000Z',
+        updated_at: '2026-10-02T12:00:00.000Z',
+      },
+    ]);
+
+    renderApp();
+
+    const conversationButtons = await screen.findAllByRole('button', { name: /Abrir conversa/ });
+    expect(conversationButtons[0]).toHaveAccessibleName('Abrir conversa Conversa atualizada recentemente');
+    expect(screen.getByText('03/10/2026')).toBeInTheDocument();
+  });
+
   it('deve recolher e expandir a sidebar no desktop', async () => {
     vi.mocked(api.getConversations).mockResolvedValue([]);
 
@@ -78,7 +102,7 @@ describe('Integração do App (Frontend)', () => {
     renderApp();
     
     // Seleciona especificamente o BOTÃO da conversa na sidebar
-    const convButton = await screen.findByRole('button', { name: /dúvida/i });
+    const convButton = await screen.findByRole('button', { name: /Abrir conversa Dúvida/i });
     fireEvent.click(convButton);
     expect(screen.getByTestId('current-route')).toHaveTextContent('/conv-1');
 
@@ -164,7 +188,7 @@ describe('Integração do App (Frontend)', () => {
     renderApp();
     
     // Abre a conversa
-    const convButton = await screen.findByRole('button', { name: /chat/i });
+    const convButton = await screen.findByRole('button', { name: /Abrir conversa Chat/i });
     fireEvent.click(convButton);
 
     const input = screen.getByLabelText('Campo de entrada de texto');
@@ -206,9 +230,50 @@ describe('Integração do App (Frontend)', () => {
 
     consoleSpy.mockRestore();
   });
+
+  it('abre modal de exclusão, permite cancelar e exclui após confirmação', async () => {
+    vi.mocked(api.getConversations).mockResolvedValue([
+      { id: 'conv-1', title: 'Conversa teste', created_at: new Date().toISOString() },
+    ]);
+    vi.mocked(api.getConversationHistory).mockResolvedValue({ messages: [] } as any);
+    vi.mocked(api.deleteConversation).mockResolvedValue(undefined);
+
+    renderApp('/conv-1');
+
+    const deleteButton = await screen.findByRole('button', {
+      name: 'Excluir conversa Conversa teste',
+    });
+    expect(deleteButton).toHaveClass('hover:text-red-500');
+
+    fireEvent.click(deleteButton);
+    expect(screen.getByRole('dialog')).toHaveTextContent('Deseja excluir a conversa?');
+    expect(api.deleteConversation).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.deleteConversation).not.toHaveBeenCalled();
+
+    fireEvent.click(deleteButton);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(api.deleteConversation).toHaveBeenCalledWith('conv-1'));
+    expect(await screen.findByTestId('current-route')).toHaveTextContent('/');
+    expect(screen.queryByText('Conversa teste')).not.toBeInTheDocument();
+  });
 });
 
 describe('Renderização de mensagens', () => {
+  it('formata espaços como separadores de milhar em respostas do assistente', () => {
+    render(
+      <ChatMessage
+        content={'Valores: 50\u202f000,00 e 1 000,00; código 123 4567.'}
+        role="assistant"
+      />,
+    );
+
+    expect(screen.getByText('Valores: 50.000,00 e 1.000,00; código 123 4567.')).toBeInTheDocument();
+  });
+
   it('renderiza listas HTML como elementos e mantém HTML perigoso inerte', () => {
     const content = '<ul><li>Nível de risco:ALTO</li><li>Dia máximo de atraso: 35 dias (classificado como atraso crítico).</li></ul><img src="x" onerror="alert(1)" />';
 

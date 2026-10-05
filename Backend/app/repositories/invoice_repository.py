@@ -3,7 +3,7 @@ from sqlalchemy import or_, cast, String
 from typing import Sequence, Tuple
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
-from app.schemas.invoice import InvoiceFilterParams
+from app.schemas.invoice import InvoiceCreate, InvoiceFilterParams
 from app.repositories.base import BaseRepository
 from app.models.client import Client
 from app.models.invoice import Invoice, InvoiceStatus
@@ -11,6 +11,19 @@ from app.models.invoice import Invoice, InvoiceStatus
 class InvoiceRepository(BaseRepository[Invoice]):
     def __init__(self, db: Session):
         super().__init__(Invoice, db)
+
+    def create(self, invoice_data: InvoiceCreate) -> Invoice:
+        """Adiciona uma fatura à sessão; a transação é confirmada pelo service."""
+        invoice = Invoice(
+            client_id=invoice_data.client_id,
+            amount=invoice_data.amount,
+            due_date=invoice_data.due_date,
+            payment_date=invoice_data.payment_date,
+            status=invoice_data.status,
+        )
+        self.db.add(invoice)
+        self.db.flush()
+        return invoice
 
     def calculate_client_exposure(self, client_id: int) -> float:
         """[T022] Mantendo a função que já existia para o CreditoService."""

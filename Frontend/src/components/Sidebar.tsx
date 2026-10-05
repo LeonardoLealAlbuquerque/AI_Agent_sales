@@ -5,18 +5,21 @@ interface SidebarProps {
   currentConversationId: string | null;
   isLoading: boolean;
   error: string | null;
+  actionError: string | null;
+  deletingConversationId: string | null;
   isOpen: boolean; // Novo: controla exibição mobile
   isDesktopOpen: boolean;
   onToggleDesktop: () => void;
   onClose: () => void; // Novo: fechar no mobile
   onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
   onRetry: () => void;
 }
 
 export function Sidebar({ 
-  conversations, currentConversationId, isLoading, error,
-  isOpen, isDesktopOpen, onToggleDesktop, onClose, onSelectConversation, onNewConversation, onRetry
+  conversations, currentConversationId, isLoading, error, actionError, deletingConversationId,
+  isOpen, isDesktopOpen, onToggleDesktop, onClose, onSelectConversation, onDeleteConversation, onNewConversation, onRetry
 }: SidebarProps) {
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
@@ -77,6 +80,10 @@ export function Sidebar({
         <h3 className="text-xs font-semibold text-gray-400 mb-3 px-2 uppercase tracking-wider">
           Histórico
         </h3>
+
+        {actionError && (
+          <p className="px-2 text-sm text-red-400" role="alert">{actionError}</p>
+        )}
         
         {error ? (
           <div className="px-2 text-center mt-4">
@@ -91,19 +98,34 @@ export function Sidebar({
           <p className="text-sm text-gray-500 px-2 italic">Nenhuma conversa ainda.</p>
         ) : (
           conversations.map((conv) => (
-            <button
-              key={conv.id}
-              onClick={() => onSelectConversation(conv.id)}
-              aria-current={currentConversationId === conv.id ? 'page' : undefined}
-              className={`w-full text-left truncate px-3 py-3 rounded-lg text-sm transition-colors flex flex-col gap-1 focus:outline-none focus:ring-2 focus:ring-gray-400 ${
-                currentConversationId === conv.id
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-300 hover:bg-gray-800'
-              }`}
-            >
-              <span className="truncate font-medium">{conv.title || 'Conversa sem título'}</span>
-              <span className="text-[10px] text-gray-400">{formatDate(conv.created_at)}</span>
-            </button>
+            <div key={conv.id} className="flex items-stretch gap-1">
+              <button
+                type="button"
+                onClick={() => onSelectConversation(conv.id)}
+                aria-label={`Abrir conversa ${conv.title || 'Conversa sem título'}`}
+                aria-current={currentConversationId === conv.id ? 'page' : undefined}
+                className={`min-w-0 flex-1 text-left truncate px-3 py-3 rounded-lg text-sm transition-colors flex flex-col gap-1 focus:outline-none focus:ring-2 focus:ring-gray-400 ${
+                  currentConversationId === conv.id
+                    ? 'bg-gray-800 text-white'
+                    : 'text-gray-300 hover:bg-gray-800'
+                }`}
+              >
+                <span className="truncate font-medium">{conv.title || 'Conversa sem título'}</span>
+                <span className="text-[10px] text-gray-400">{formatDate(conv.updated_at || conv.created_at)}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteConversation(conv.id)}
+                aria-label={`Excluir conversa ${conv.title || 'Conversa sem título'}`}
+                title="Excluir conversa"
+                disabled={deletingConversationId === conv.id}
+                className="shrink-0 self-center rounded-md p-2 text-gray-500 transition-colors hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:cursor-wait disabled:opacity-50"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
           ))
         )}
       </nav>

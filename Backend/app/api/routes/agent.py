@@ -68,6 +68,27 @@ def get_conversation_history(
     )
 
 
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir conversa do histórico",
+)
+def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+) -> None:
+    repository = ConversationRepository(db)
+    conversation = repository.get(conversation_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversa não encontrada.",
+        )
+
+    repository.delete(conversation)
+    db.commit()
+
+
 @router.post("/chat", status_code=status.HTTP_200_OK, response_class=StreamingResponse)
 def agent_chat(
     payload: ChatRequest,

@@ -37,3 +37,22 @@ def test_add_message_persists_tool_calls_and_tool_name(db_session):
             "name": "get_client_credit_limit",
         },
     ]
+
+def test_delete_conversation_endpoint_removes_conversation_and_messages(client, db_session):
+    repository = ConversationRepository(db_session)
+    conversation = repository.create("Conversa para excluir")
+    repository.add_message(conversation.id, role="user", content="Mensagem de teste")
+    db_session.commit()
+
+    response = client.delete(f"/api/v1/agent/conversations/{conversation.id}")
+
+    assert response.status_code == 204
+    assert repository.get(conversation.id) is None
+    assert repository.messages(conversation.id) == []
+    assert client.get(f"/api/v1/agent/conversations/{conversation.id}").status_code == 404
+
+
+def test_delete_missing_conversation_returns_404(client):
+    response = client.delete("/api/v1/agent/conversations/missing-conversation")
+
+    assert response.status_code == 404
