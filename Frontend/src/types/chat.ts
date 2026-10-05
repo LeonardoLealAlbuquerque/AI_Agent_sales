@@ -15,6 +15,7 @@ export interface ConversationSummary {
   id: string;
   title: string;
   created_at: string;
+  updated_at?: string | null;
 }
 
 // Representa o detalhe da conversa (usada na área principal do chat)

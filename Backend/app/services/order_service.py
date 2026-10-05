@@ -2,10 +2,141 @@ from datetime import date
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.repositories.order_repository import OrderRepository
-from app.schemas.order import OrderSummary, OrderDetail, DeliveryInfo, OrderItem
-from app.api.errors import NotFoundException
+from app.repositories.client_repository import ClientRepository
+from app.schemas.order import (
+    OrderCreate,
+    OrderItemCreate,
+    OrderItemPatch,
+    OrderItemResponse,
+    OrderSummary,
+    OrderDetail,
+    DeliveryInfo,
+    OrderItem,
+)
+from app.api.errors import BusinessRuleException, NotFoundException
+from sqlalchemy.exc import IntegrityError
 
 class OrderService:
+
+    @staticmethod
+    def create_order_item(
+        db: Session, order_id: int, item_data: OrderItemCreate
+    ) -> OrderItemResponse:
+        repository = OrderRepository(db)
+        if not repository.get_by_id(order_id):
+            raise NotFoundException(f"Pedido {order_id} não encontrado.")
+
+        subtotal = item_data.quantity * item_data.unit_price - item_data.discount
+        try:
+            item = repository.create_item(order_id, item_data, subtotal)
+            repository.update_order_total(
+                order_id, repository.calculate_total_amount(order_id)
+            )
+            db.commit()
+            db.refresh(item)
+        except IntegrityError as exc:
+            db.rollback()
+            raise BusinessRuleException(
+                "Não foi possível adicionar o item ao pedido."
+            ) from exc
+
+        return OrderItemResponse.model_validate(item)
+
+    @staticmethod
+    def update_order_item(
+        db: Session,
+        order_id: int,
+        item_id: int,
+        payload: OrderItemPatch,
+    ) -> OrderItemResponse:
+        repository = OrderRepository(db)
+        if not repository.get_by_id(order_id):
+            raise NotFoundException(f"Pedido {order_id} não encontrado.")
+
+        item = repository.get_item_for_order(order_id, item_id)
+        if not item:
+            raise NotFoundException(f"Item {item_id} não encontrado no pedido {order_id}.")
+
+        changes = payload.model_dump(exclude_unset=True)
+        new_values = {
+            "quantity": changes.get("quantity", item.quantity),
+            "unit_price": changes.get("unit_price", item.unit_price),
+            "discount": changes.get("discount", item.discount),
+        }
+        gross_amount = new_values["quantity"] * new_values["unit_price"]
+        if new_values["discount"] > gross_amount:
+            raise BusinessRuleException(
+                "O desconto não pode superar o valor total do item."
+            )
+
+        try:
+            for field_name, value in changes.items():
+                setattr(item, field_name, value)
+            item.subtotal = gross_amount - new_values["discount"]
+            db.flush()
+            repository.update_order_total(
+                order_id, repository.calculate_total_amount(order_id)
+            )
+            db.commit()
+            db.refresh(item)
+        except IntegrityError as exc:
+            db.rollback()
+            raise BusinessRuleException(
+                "Não foi possível atualizar o item do pedido."
+            ) from exc
+
+        return OrderItemResponse.model_validate(item)
+
+    @staticmethod
+    def delete_order_item(db: Session, order_id: int, item_id: int) -> None:
+        repository = OrderRepository(db)
+        if not repository.get_by_id(order_id):
+            raise NotFoundException(f"Pedido {order_id} não encontrado.")
+
+        item = repository.get_item_for_order(order_id, item_id)
+        if not item:
+            raise NotFoundException(f"Item {item_id} não encontrado no pedido {order_id}.")
+        if len(repository.list_items(order_id)) <= 1:
+            raise BusinessRuleException(
+                "O pedido deve manter pelo menos um item."
+            )
+
+        try:
+            repository.delete_item(item)
+            repository.update_order_total(
+                order_id, repository.calculate_total_amount(order_id)
+            )
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise BusinessRuleException(
+                "Não foi possível remover o item do pedido."
+            ) from exc
+
+    @staticmethod
+    def create_order(db: Session, order_data: OrderCreate) -> OrderDetail:
+        """Valida o cliente, calcula subtotais e persiste o pedido com seus itens."""
+        if not ClientRepository(db).get_by_id(order_data.client_id):
+            raise NotFoundException(
+                f"Cliente de ID {order_data.client_id} não encontrado no sistema."
+            )
+
+        total_amount = sum(
+            item.quantity * item.unit_price - item.discount
+            for item in order_data.items
+        )
+
+        try:
+            order = OrderRepository(db).create(order_data, total_amount)
+            order_id = order.id
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise BusinessRuleException(
+                "Não foi possível cadastrar o pedido. Verifique os dados informados."
+            ) from exc
+
+        return OrderService.get_order_details(db, order_id)
     
     @staticmethod
     def _calculate_logistics(previsao: date, entrega_real: Optional[date]) -> DeliveryInfo:

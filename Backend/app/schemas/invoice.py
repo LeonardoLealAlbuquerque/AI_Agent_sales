@@ -1,8 +1,33 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import date
 from typing import Optional
 from app.models.invoice import InvoiceStatus
-from pydantic import BaseModel, Field
+
+
+class InvoiceCreate(BaseModel):
+    client_id: int = Field(..., ge=1, description="ID do cliente associado à fatura.")
+    amount: float = Field(..., gt=0, description="Valor positivo da fatura.", examples=[1500.0])
+    due_date: date = Field(..., description="Data de vencimento no formato YYYY-MM-DD.")
+    status: InvoiceStatus = Field(
+        InvoiceStatus.PENDING,
+        description="Status inicial da fatura.",
+    )
+    payment_date: Optional[date] = Field(
+        None,
+        description="Data de pagamento, se aplicável.",
+    )
+
+
+class InvoiceResponse(BaseModel):
+    id: int
+    client_id: int
+    amount: float
+    due_date: date
+    payment_date: Optional[date]
+    status: InvoiceStatus
+
+    class Config:
+        from_attributes = True
 
 class OverdueInvoice(BaseModel):
     id: int

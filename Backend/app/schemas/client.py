@@ -1,5 +1,6 @@
 import re
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from datetime import datetime
 from typing import List, Optional
 from app.schemas.consult import IdMixin
 
@@ -90,3 +91,58 @@ class CreditAnalyticResponse(BaseModel):
         default_factory=list, 
         description="Lista de motivos caso esteja bloqueado (ex: limite excedido, inativo)"
     )
+
+
+class CreditLimitRequestCreate(BaseModel):
+    requested_limit: float = Field(
+        ...,
+        ge=0,
+        description="Limite solicitado para avaliação da gerência; não altera o limite atual.",
+        examples=[25000.0],
+    )
+    justification: str = Field(..., min_length=5, max_length=1000)
+
+    @field_validator("justification")
+    @classmethod
+    def strip_justification(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 5:
+            raise ValueError("A justificativa deve conter pelo menos 5 caracteres.")
+        return value
+
+
+class CreditLimitRequestPatch(BaseModel):
+    requested_limit: Optional[float] = Field(None, ge=0)
+    justification: Optional[str] = Field(None, min_length=5, max_length=1000)
+
+    @field_validator("justification")
+    @classmethod
+    def strip_justification(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if len(value) < 5:
+            raise ValueError("A justificativa deve conter pelo menos 5 caracteres.")
+        return value
+
+    @model_validator(mode="after")
+    def require_changes(self):
+        if not self.model_fields_set or any(
+            getattr(self, field_name) is None for field_name in self.model_fields_set
+        ):
+            raise ValueError("Informe ao menos um campo válido para atualização.")
+        return self
+
+
+class CreditLimitRequestResponse(BaseModel):
+    id: int
+    client_id: int
+    current_limit: float
+    requested_limit: float
+    justification: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

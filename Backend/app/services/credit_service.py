@@ -1,10 +1,87 @@
 from sqlalchemy.orm import Session
 from app.repositories.client_repository import ClientRepository
+from app.repositories.credit_limit_request_repository import CreditLimitRequestRepository
 from app.repositories.invoice_repository import InvoiceRepository
-from app.schemas.client import CreditAnalyticResponse
-from app.api.errors import NotFoundException
+from app.schemas.client import (
+    CreditAnalyticResponse,
+    CreditLimitRequestCreate,
+    CreditLimitRequestPatch,
+    CreditLimitRequestResponse,
+)
+from app.api.errors import BusinessRuleException, NotFoundException
+from sqlalchemy.exc import IntegrityError
 
 class CreditService:
+    @staticmethod
+    def create_limit_request(
+        db: Session, client_id: int, payload: CreditLimitRequestCreate
+    ) -> CreditLimitRequestResponse:
+        client = ClientRepository(db).get_by_id(client_id)
+        if not client:
+            raise NotFoundException(f"Cliente de ID {client_id} não encontrado no sistema.")
+
+        repository = CreditLimitRequestRepository(db)
+        try:
+            request = repository.create(
+                client_id=client.id,
+                current_limit=client.credit_limit,
+                requested_limit=payload.requested_limit,
+                justification=payload.justification,
+            )
+            db.commit()
+            db.refresh(request)
+        except IntegrityError as exc:
+            db.rollback()
+            raise BusinessRuleException(
+                "Não foi possível registrar a solicitação de revisão de crédito."
+            ) from exc
+
+        return CreditLimitRequestResponse.model_validate(request)
+
+    @staticmethod
+    def update_limit_request(
+        db: Session,
+        client_id: int,
+        request_id: int,
+        payload: CreditLimitRequestPatch,
+    ) -> CreditLimitRequestResponse:
+        repository = CreditLimitRequestRepository(db)
+        request = repository.get_for_client(request_id, client_id)
+        if not request:
+            raise NotFoundException("Solicitação de revisão de crédito não encontrada.")
+        if request.status != "PENDING":
+            raise BusinessRuleException(
+                "Somente solicitações pendentes podem ser atualizadas."
+            )
+
+        for field_name, value in payload.model_dump(exclude_unset=True).items():
+            setattr(request, field_name, value)
+
+        try:
+            db.commit()
+            db.refresh(request)
+        except IntegrityError as exc:
+            db.rollback()
+            raise BusinessRuleException(
+                "Não foi possível atualizar a solicitação de revisão de crédito."
+            ) from exc
+
+        return CreditLimitRequestResponse.model_validate(request)
+
+    @staticmethod
+    def delete_limit_request(db: Session, client_id: int, request_id: int) -> None:
+        repository = CreditLimitRequestRepository(db)
+        request = repository.get_for_client(request_id, client_id)
+        if not request:
+            raise NotFoundException("Solicitação de revisão de crédito não encontrada.")
+        if request.status != "PENDING":
+            raise BusinessRuleException(
+                "Somente solicitações pendentes podem ser removidas."
+            )
+
+        repository.delete(request)
+        db.commit()
+
     @staticmethod
     def analyze_client_risk(db: Session, client_id: int) -> CreditAnalyticResponse:
         """

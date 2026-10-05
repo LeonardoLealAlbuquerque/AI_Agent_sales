@@ -8,6 +8,10 @@ interface MessageProps {
   role: 'user' | 'assistant' | 'system' | 'tool'; // ← Adicionado 'tool' aqui
 }
 
+function normalizeNumberGroupSeparators(content: string): string {
+  return content.replace(/(\d)[ \u00a0\u202f](?=\d{3}(?:[^\d]|$))/g, '$1.');
+}
+
 export function ChatMessage({ content, role }: MessageProps) {
   if (!content || content.trim() === ''){
     return null;
@@ -26,6 +30,10 @@ export function ChatMessage({ content, role }: MessageProps) {
         return 'bg-zinc-800 text-zinc-100 self-start mr-auto';
     }
   };
+
+  const renderedContent = role === 'assistant'
+    ? normalizeNumberGroupSeparators(content)
+    : content;
 
   return (
     <div className={`flex ${role === 'user' ? 'justify-end' : role === 'system' ? 'justify-center' : 'justify-start'}`}>
@@ -54,7 +62,7 @@ export function ChatMessage({ content, role }: MessageProps) {
               )
             }}
           >
-            {content}
+            {renderedContent}
           </ReactMarkdown>
         </div>
       </div>
