@@ -23,9 +23,9 @@ htmlcov/
 **/coverage/
 
 # Local environment variables and secrets
-.env
-.env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 # Local databases and persisted vector store
 *.db

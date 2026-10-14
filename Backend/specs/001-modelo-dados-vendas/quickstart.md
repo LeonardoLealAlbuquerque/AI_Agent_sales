@@ -24,6 +24,8 @@ uvicorn app.main:app --reload
 
 Abrir `/docs` para verificar o contrato OpenAPI e executar as consultas GET descritas em [contracts/openapi.yaml](contracts/openapi.yaml).
 
+Para carregar os dados demonstrativos, a partir da pasta `Backend`, execute `python scripts/seed_demo.py`. A seed inclui limites aprovados de `50000.00` e `10000.00` e uma solicitação pendente de aumento de `50000.00` para `75000.00`; a solicitação não altera o limite aprovado.
+
 ## Cenarios minimos
 
 1. Criar fixture de um cliente ativo com limite de `10000.00`, uma fatura aberta de `2500.00` e uma fatura vencida de `1000.00`; consultar credito e verificar exposição `3500.00` e saldo `6500.00`.

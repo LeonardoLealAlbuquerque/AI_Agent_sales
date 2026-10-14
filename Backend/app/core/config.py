@@ -19,7 +19,7 @@ class Settings(BaseSettings):
             env_key = os.getenv("LLM_API_KEY", "")
             if not env_key or env_key == "sua_chave_da_openai_aqui" or not env_key.strip():
                 raise ValueError(
-                    "\n❌ [Erro de Configuração - T046]: A chave de API do LLM (LLM_API_KEY) é obrigatória. "
+                    "\n❌ Erro de Configuração: A chave de API do LLM (LLM_API_KEY) é obrigatória. "
                     "Copie o arquivo .env.example para .env e preencha sua chave de API válida da OpenAI."
                 )
             return env_key

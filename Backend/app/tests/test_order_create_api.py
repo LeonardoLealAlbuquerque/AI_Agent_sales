@@ -1,4 +1,8 @@
+from datetime import date, timedelta
+
 from app.models.client import Client
+from app.models.invoice import Invoice, InvoiceStatus
+from app.models.order import Order
 
 
 def test_create_order_endpoint_and_openapi_schema(client, db):
@@ -53,6 +57,115 @@ def test_create_order_rejects_unknown_client(client):
     )
 
     assert response.status_code == 404
+
+
+def test_create_order_rejects_inactive_client(client, db):
+    db.add(Client(
+        id=1,
+        cnpj="12345678000195",
+        company_name="Cliente Inativo LTDA",
+        status="INACTIVE",
+        credit_limit=5000,
+    ))
+    db.commit()
+
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "client_id": 1,
+            "estimated_delivery_date": "2026-11-15",
+            "items": [{"product_id": 1, "product_name": "Produto", "unit_price": 10}],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "inativo" in response.json()["detail"].lower()
+    assert db.query(Order).count() == 0
+
+
+def test_create_order_rejects_order_above_available_credit(client, db):
+    db.add(Client(
+        id=1,
+        cnpj="12345678000195",
+        company_name="Cliente com Limite Baixo LTDA",
+        status="ACTIVE",
+        credit_limit=100,
+    ))
+    db.commit()
+
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "client_id": 1,
+            "estimated_delivery_date": "2026-11-15",
+            "items": [{"product_id": 1, "product_name": "Produto", "unit_price": 101}],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "crédito insuficiente" in response.json()["detail"].lower()
+    assert db.query(Order).count() == 0
+
+
+def test_create_order_rejects_client_with_critical_overdue_invoice(client, db):
+    db.add(Client(
+        id=1,
+        cnpj="12345678000195",
+        company_name="Cliente Inadimplente LTDA",
+        status="ACTIVE",
+        credit_limit=5000,
+    ))
+    db.flush()
+    db.add(Invoice(
+        client_id=1,
+        amount=1500,
+        due_date=date.today() - timedelta(days=31),
+        status=InvoiceStatus.PENDING,
+    ))
+    db.commit()
+
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "client_id": 1,
+            "estimated_delivery_date": "2026-11-15",
+            "items": [{"product_id": 1, "product_name": "Produto", "unit_price": 10}],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "atraso crítico" in response.json()["detail"].lower()
+    assert db.query(Order).count() == 0
+
+
+def test_create_order_allows_invoice_overdue_exactly_30_days(client, db):
+    db.add(Client(
+        id=1,
+        cnpj="12345678000195",
+        company_name="Cliente com Atraso Não Crítico LTDA",
+        status="ACTIVE",
+        credit_limit=5000,
+    ))
+    db.flush()
+    db.add(Invoice(
+        client_id=1,
+        amount=1500,
+        due_date=date.today() - timedelta(days=30),
+        status=InvoiceStatus.PENDING,
+    ))
+    db.commit()
+
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "client_id": 1,
+            "estimated_delivery_date": "2026-11-15",
+            "items": [{"product_id": 1, "product_name": "Produto", "unit_price": 10}],
+        },
+    )
+
+    assert response.status_code == 201
+    assert db.query(Order).count() == 1
 
 
 def test_create_order_rejects_discount_above_item_total(client):

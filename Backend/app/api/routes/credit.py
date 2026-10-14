@@ -33,7 +33,10 @@ def create_limit_request(
     "/{id_cliente}/credit/requests/{request_id}",
     response_model=CreditLimitRequestResponse,
     summary="Atualizar solicitação de revisão de crédito",
-    description="Atualiza campos de uma solicitação ainda pendente; não altera o limite aprovado.",
+    description=(
+        "Atualiza uma solicitação pendente. Status aceitos: PENDING, APPROVED "
+        "ou REJECTED; aprovar aplica o limite solicitado ao cliente."
+    ),
 )
 def update_limit_request(
     id_cliente: int,

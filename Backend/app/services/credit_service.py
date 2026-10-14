@@ -49,13 +49,17 @@ class CreditService:
         request = repository.get_for_client(request_id, client_id)
         if not request:
             raise NotFoundException("Solicitação de revisão de crédito não encontrada.")
-        if request.status != "PENDING":
-            raise BusinessRuleException(
-                "Somente solicitações pendentes podem ser atualizadas."
-            )
 
         for field_name, value in payload.model_dump(exclude_unset=True).items():
             setattr(request, field_name, value)
+
+        if request.status == "APPROVED":
+            client = ClientRepository(db).get_by_id(client_id)
+            if not client:
+                raise NotFoundException(
+                    f"Cliente de ID {client_id} não encontrado no sistema."
+                )
+            client.credit_limit = request.requested_limit
 
         try:
             db.commit()

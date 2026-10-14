@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.models.client import Client
+from app.models.credit_limit_request import CreditLimitRequest
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.order import Order, OrderStatus
 
@@ -39,6 +40,16 @@ def popular_banco():
         # Pedidos
         pedido = Order(client_id=c1.id, status=OrderStatus.PENDING, total_amount=1500.0, created_at=hoje, estimated_delivery_date=hoje + timedelta(days=5))
         db.add(pedido)
+
+        # Solicitação pendente: demonstra a revisão sem alterar o limite aprovado.
+        solicitacao_limite = CreditLimitRequest(
+            client_id=c1.id,
+            current_limit=c1.credit_limit,
+            requested_limit=75000.0,
+            justification="Expansão da operação e aumento do volume de compras.",
+            status="PENDING",
+        )
+        db.add(solicitacao_limite)
 
         db.commit()
         print("✅ Banco populado com sucesso para a homologação do Agente de IA!")

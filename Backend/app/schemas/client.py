@@ -1,7 +1,7 @@
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from app.schemas.consult import IdMixin
 
 class ClientResponse(IdMixin):
@@ -114,6 +114,10 @@ class CreditLimitRequestCreate(BaseModel):
 class CreditLimitRequestPatch(BaseModel):
     requested_limit: Optional[float] = Field(None, ge=0)
     justification: Optional[str] = Field(None, min_length=5, max_length=1000)
+    status: Optional[Literal["PENDING", "APPROVED", "REJECTED"]] = Field(
+        None,
+        description="Status da solicitação. Aprovar aplica o limite solicitado ao cliente.",
+    )
 
     @field_validator("justification")
     @classmethod

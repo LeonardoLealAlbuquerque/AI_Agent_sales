@@ -24,6 +24,7 @@ O cálculo consolidado de risco inclui exposição, maior atraso e inconsistênc
 - **Groq SDK** para chamadas ao modelo de linguagem (LLM).
 - **LangChain Core** para definir ferramentas que o agente pode invocar.
 - **ChromaDB** e **LangChain Text Splitters** para a base de conhecimento vetorial.
+- **NumPy 1.x**: o ChromaDB 0.4.24 usa aliases removidos no NumPy 2; a dependência `numpy<2` evita essa incompatibilidade.
 - **pytest** e **HTTPX** para testes.
 
 ### Frontend

@@ -14,6 +14,8 @@ from app.schemas.order import (
     OrderItem,
 )
 from app.api.errors import BusinessRuleException, NotFoundException
+from app.services.credit_service import CreditService
+from app.services.risk_service import RiskService
 from sqlalchemy.exc import IntegrityError
 
 class OrderService:
@@ -23,6 +25,7 @@ class OrderService:
         db: Session, order_id: int, item_data: OrderItemCreate
     ) -> OrderItemResponse:
         repository = OrderRepository(db)
+
         if not repository.get_by_id(order_id):
             raise NotFoundException(f"Pedido {order_id} não encontrado.")
 
@@ -115,16 +118,39 @@ class OrderService:
 
     @staticmethod
     def create_order(db: Session, order_data: OrderCreate) -> OrderDetail:
-        """Valida o cliente, calcula subtotais e persiste o pedido com seus itens."""
-        if not ClientRepository(db).get_by_id(order_data.client_id):
+        """Valida cadastro, crédito e risco antes de persistir o pedido."""
+        client = ClientRepository(db).get_by_id(order_data.client_id)
+        if not client:
             raise NotFoundException(
                 f"Cliente de ID {order_data.client_id} não encontrado no sistema."
+            )
+        if client.status != "ACTIVE":
+            raise BusinessRuleException(
+                "Cliente inativo. Não é possível cadastrar novos pedidos."
             )
 
         total_amount = sum(
             item.quantity * item.unit_price - item.discount
             for item in order_data.items
         )
+
+        credit_analysis = CreditService.analyze_client_risk(db, client.id)
+        if (
+            credit_analysis.is_blocked
+            or total_amount > credit_analysis.available_credit
+        ):
+            raise BusinessRuleException(
+                "Crédito insuficiente para aprovar o pedido. "
+                f"Disponível: R$ {credit_analysis.available_credit:.2f}; "
+                f"valor do pedido: R$ {total_amount:.2f}."
+            )
+
+        risk_analysis = RiskService.consolidate_risk_exposure(db, client.id)
+        if risk_analysis.max_overdue_days > 30:
+            raise BusinessRuleException(
+                "Novos pedidos bloqueados: o cliente possui faturas com "
+                f"atraso crítico de {risk_analysis.max_overdue_days} dias."
+            )
 
         try:
             order = OrderRepository(db).create(order_data, total_amount)
