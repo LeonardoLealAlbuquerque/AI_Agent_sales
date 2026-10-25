@@ -1,16 +1,12 @@
-// frontend/src/types/chat.ts
-
-// Tipos permitidos para os papéis (roles) nas mensagens
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
 
 export interface ChatMessage {
-  id?: string; // Opcional, pois mensagens novas enviadas pelo usuário ainda não tem ID
+  id?: string;
   role: Role;
   content: string;
   created_at?: string;
 }
 
-// Representa a versão resumida da conversa (usada na Sidebar)
 export interface ConversationSummary {
   id: string;
   title: string;

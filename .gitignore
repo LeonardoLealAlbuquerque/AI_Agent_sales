@@ -26,6 +26,8 @@ htmlcov/
 .env
 .env.*
 !.env.example
+Backend/.env
+!Backend/.env.example
 
 # Local databases and persisted vector store
 *.db

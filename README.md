@@ -12,7 +12,9 @@ Aplicação web para apoiar equipes comerciais B2B em consultas sobre clientes, 
 - **Base de conhecimento:** o agente pode buscar trechos do playbook B2B armazenado em uma coleção vetorial ChromaDB.
 - **Interface responsiva:** inclui uma área de chat, histórico lateral e visualização de mensagens com suporte a Markdown.
 
-O cálculo consolidado de risco inclui exposição, maior atraso e inconsistências. Os campos de pedidos em aberto dessa análise ainda não são integrados ao cálculo e são retornados como zero.
+A análise consolidada de risco retorna a exposição das faturas pendentes, o maior atraso, a quantidade e o valor ainda não faturado dos pedidos `PENDING` ou `SHIPPED`, as inconsistências encontradas e o nível de risco (`BAIXO`, `MEDIO` ou `ALTO`). O valor do pedido em aberto desconta faturas vinculadas não canceladas, evitando contar novamente compromissos já faturados; faturas canceladas não reduzem esse valor. A quantidade conta pedidos pelo status, mesmo que já estejam totalmente faturados. A análise sinaliza atraso crítico acima de 30 dias e exposição de faturas acima do limite de crédito aprovado do cliente. O nível de risco e a condição de bloqueio são informações distintas; consulte a análise de crédito para verificar o bloqueio e seus motivos.
+
+Os valores monetários são validados com até duas casas decimais e persistidos como `NUMERIC(15, 2)`. As respostas da API mantêm os valores como números JSON.
 
 ## Tecnologias e bibliotecas
 
@@ -43,6 +45,7 @@ A API usa o prefixo `/api/v1`. O FastAPI também publica a documentação intera
 | Método | Rota | Funcionalidade |
 | --- | --- | --- |
 | `GET` | `/health` | Informa se a API está operando. |
+| `GET` | `/health/knowledge-base` | Informa se o índice vetorial corresponde ao playbook atual; retorna `503` quando a base não está pronta. |
 
 ### Clientes
 
@@ -127,8 +130,29 @@ LLM_MODEL=seu_modelo_disponivel_na_groq
 ```
 
 `LLM_API_KEY` é obrigatória. `LLM_MODEL` deve indicar um modelo aceito pela Groq; se omitida, a configuração do projeto usa `gpt-4o` como padrão, que pode não estar disponível nesse provedor. Não compartilhe nem versione sua chave.
+Você também pode copiar o modelo de configuração, que não contém credenciais:
 
-Para criar as tabelas e inserir dados demonstrativos opcionais:
+```powershell
+Copy-Item .env.example .env
+```
+
+Antes de iniciar a API pela primeira vez, prepare o índice do playbook:
+
+```powershell
+python -m app.services.chromadb_service
+```
+
+O comando pode ser repetido: conteúdo inalterado não gera chunks duplicados, e alterações no Markdown substituem os chunks obsoletos. Use `python -m app.services.chromadb_service --force` para recriar a coleção. O Chroma usa explicitamente o embedding padrão `all-MiniLM-L6-v2`; na primeira ingestão o modelo pode precisar ser baixado, portanto esse passo pode exigir acesso à internet. Consulte `http://localhost:8000/health/knowledge-base` depois de iniciar a API; o estado deve ser `ready`. Se o playbook mudar, rode novamente a ingestão antes de usar as respostas de política.
+
+Para aplicar as migrações em um banco existente, no diretório `Backend`, execute:
+
+```powershell
+alembic upgrade head
+```
+
+A migração interrompe com uma mensagem explícita se encontrar registros legados de faturas, pedidos ou itens sem os dados necessários para preencher as novas colunas com segurança. Reconcilie esses registros antes de tentar novamente.
+
+Para criar as tabelas e inserir dados demonstrativos opcionais em um banco vazio:
 
 ```powershell
 python scripts/seed_demo.py
