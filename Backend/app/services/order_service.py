@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.repositories.order_repository import OrderRepository
@@ -122,8 +123,11 @@ class OrderService:
             )
 
         total_amount = sum(
-            item.quantity * item.unit_price - item.discount
-            for item in order_data.items
+            (
+                item.quantity * item.unit_price - item.discount
+                for item in order_data.items
+            ),
+            Decimal("0.00"),
         )
 
         try:

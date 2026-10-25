@@ -1,4 +1,7 @@
+from decimal import Decimal
+
 from app.models.client import Client
+from app.models.order import Order
 
 
 def test_create_order_endpoint_and_openapi_schema(client, db):
@@ -67,6 +70,54 @@ def test_create_order_rejects_discount_above_item_total(client):
                 "quantity": 2,
                 "unit_price": 10,
                 "discount": 25,
+            }],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_order_calculations_preserve_decimal_cents(client, db):
+    db.add(Client(
+        id=1,
+        cnpj="12345678000195",
+        company_name="Cliente de Teste LTDA",
+        status="ACTIVE",
+        credit_limit=5000,
+    ))
+    db.commit()
+
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "client_id": 1,
+            "estimated_delivery_date": "2026-11-15",
+            "items": [{
+                "product_id": 1,
+                "product_name": "Produto",
+                "quantity": 3,
+                "unit_price": "0.10",
+                "discount": "0.02",
+            }],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["total_amount"] == 0.28
+    assert response.json()["items"][0]["subtotal"] == 0.28
+    assert db.query(Order).one().total_amount == Decimal("0.28")
+
+
+def test_order_rejects_money_with_more_than_two_decimal_places(client):
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "client_id": 1,
+            "estimated_delivery_date": "2026-11-15",
+            "items": [{
+                "product_id": 1,
+                "product_name": "Produto",
+                "unit_price": "1.001",
             }],
         },
     )

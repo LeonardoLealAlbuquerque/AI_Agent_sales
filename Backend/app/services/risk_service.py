@@ -1,16 +1,14 @@
 from datetime import date
 from sqlalchemy.orm import Session
+from app.api.errors import NotFoundException
+from app.repositories.client_repository import ClientRepository
 from app.repositories.invoice_repository import InvoiceRepository
+from app.repositories.order_repository import OrderRepository
 from app.schemas.invoice import InvoiceFilterParams
 from app.schemas.risk import ConsolidatedRisk, RuleInconsistency
 from app.services.invoice_service import InvoiceService
 
 class RiskService:
-    
-    @staticmethod
-    def _calculate_days_overdue(vencimento: date) -> int:
-        hoje = date.today()
-        return (hoje - vencimento).days if hoje > vencimento else 0
 
     @staticmethod
     def consolidate_risk_exposure(db: Session, client_id: int) -> ConsolidatedRisk:
@@ -18,15 +16,23 @@ class RiskService:
         [T038] Agrega a exposição financeira do cliente, calcula o maior atraso
         e detecta inconsistências de crédito.
         """
+        client = ClientRepository(db).get_by_id(client_id)
+        if not client:
+            raise NotFoundException(
+                f"Cliente de ID {client_id} não encontrado no sistema."
+            )
+
         fatura_repo = InvoiceRepository(db)
         
         # 1. Calcular Exposição Total (Faturas pendentes)
         exposicao = fatura_repo.calculate_client_exposure(client_id)
         
         # 2. Descobrir o Maior Atraso
+        reference_date = date.today()
         faturas_vencidas = InvoiceService.list_invoices(
             db,
             InvoiceFilterParams(client_id=client_id, only_overdue=True, limit=100),
+            reference_date=reference_date,
         )
         maior_atraso = max(
             (
@@ -36,11 +42,11 @@ class RiskService:
             ),
             default=0,
         )
-            
-        # 3. Pedidos Abertos (Preparando a estrutura para quando houver OrderRepository)
-        # TODO: Integrar com OrderRepository no futuro
-        open_orders_count = 0 
-        open_orders_amount = 0.0 
+
+        # 3. Pedidos pendentes ou enviados ainda representam compromissos em aberto.
+        open_orders_count, open_orders_amount = OrderRepository(
+            db
+        ).calculate_open_order_summary(client_id)
         
         # 4. Avaliação de Inconsistências (Motor de Regras)
         inconsistencias = []
@@ -52,10 +58,13 @@ class RiskService:
                 severity="ALTA"
             ))
             
-        if exposicao > 50000:
+        if exposicao > client.credit_limit:
             inconsistencias.append(RuleInconsistency(
                 rule_name="EXPOSICAO_ELEVADA",
-                description=f"Exposição financeira de R$ {exposicao:.2f} excede o limite seguro.",
+                description=(
+                    f"Exposição financeira de R$ {exposicao:.2f} excede "
+                    f"o limite de crédito aprovado de R$ {client.credit_limit:.2f}."
+                ),
                 severity="MEDIA"
             ))
             

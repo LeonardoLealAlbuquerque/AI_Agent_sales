@@ -1,5 +1,7 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from app.api.router import api_router
+from app.agent.tools import get_chroma_service
 from app.api.errors import setup_exception_handlers
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -28,5 +30,13 @@ setup_exception_handlers(app)
 @app.get("/health", tags=["Health Check"])
 def health_check():
     return {"status": "ok", "message": "API operando normalmente"}
+
+
+@app.get("/health/knowledge-base", tags=["Health Check"])
+def knowledge_base_health_check():
+    status = get_chroma_service().get_status()
+    status_code = 200 if status["status"] == "ready" else 503
+    return JSONResponse(status_code=status_code, content=status)
+
 
 app.include_router(api_router, prefix="/api/v1")

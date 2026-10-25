@@ -2,6 +2,7 @@
 
 import json
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 from fastapi.encoders import jsonable_encoder
 from app.models.invoice import InvoiceStatus
@@ -101,8 +102,8 @@ def list_invoices(
     client_id: Optional[int] = None,
     status: Optional[InvoiceStatus] = None,
     only_overdue: bool = False,
-    min_amount: Optional[float] = None,
-    max_amount: Optional[float] = None,
+    min_amount: Optional[Decimal] = None,
+    max_amount: Optional[Decimal] = None,
     payment_date_start: Optional[date] = None,
     payment_date_end: Optional[date] = None,
     limit: int = 50, 
@@ -135,9 +136,9 @@ def list_clients(
     client_id: Optional[int] = None,
     name: Optional[str] = None,
     cnpj: Optional[str] = None,
-    credit_limit: Optional[float] = None,
-    min_credit_limit: Optional[float] = None,
-    max_credit_limit: Optional[float] = None,
+    credit_limit: Optional[Decimal] = None,
+    min_credit_limit: Optional[Decimal] = None,
+    max_credit_limit: Optional[Decimal] = None,
     status: Optional[str] = None,
     limit: int = 50,
     skip: int = 0,

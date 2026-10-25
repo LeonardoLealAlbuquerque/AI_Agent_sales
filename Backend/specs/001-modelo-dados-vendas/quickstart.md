@@ -18,6 +18,20 @@ Resultado esperado: testes unitarios e de integração verdes, incluindo constra
 
 ## Execucao local
 
+Antes de iniciar a API pela primeira vez, a partir do diretorio `Backend`, ingira o playbook:
+
+```powershell
+python -m app.services.chromadb_service
+```
+
+O comando e seguro para repetir. Se o conteudo do playbook mudar, rode-o novamente para atualizar o indice. Para recriar a colecao explicitamente, use `python -m app.services.chromadb_service --force`.
+
+O Chroma usa o embedding padrao `all-MiniLM-L6-v2`; a primeira ingestao pode baixar o modelo e exigir acesso a internet. A API expoe `GET /health/knowledge-base`, que retorna `ready` quando o indice corresponde ao Markdown atual e `503` quando precisa ser preparado/atualizado. Perguntas sobre politicas executam a recuperacao antes da chamada ao modelo; se nao houver trechos utilizaveis, o agente e instruido a nao afirmar regras nao verificadas.
+
+```powershell
+cd Backend
+```
+
 ```powershell
 uvicorn app.main:app --reload
 ```

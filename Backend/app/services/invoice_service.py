@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from typing import Any
 from sqlalchemy.orm import Session
 from app.schemas.invoice import InvoiceFilterParams
@@ -31,26 +32,33 @@ class InvoiceService:
         return InvoiceResponse.model_validate(invoice)
 
     @staticmethod
-    def _calculate_days_overdue(vencimento: date) -> int:
-        hoje = date.today()
-        if hoje > vencimento:
-            return (hoje - vencimento).days
-        return 0
+    def _calculate_days_overdue(due_date: date, reference_date: date) -> int:
+        return max((reference_date - due_date).days, 0)
     
     @staticmethod
-    def list_invoices(db: Session, filters: InvoiceFilterParams) -> dict[str, Any]:
+    def list_invoices(
+        db: Session,
+        filters: InvoiceFilterParams,
+        reference_date: date | None = None,
+    ) -> dict[str, Any]:
         """
         Lista faturas agrupadas por cliente com suporte a busca genérica,
         filtros por status, cliente específico e flag de faturas vencidas.
         """
-        rows = InvoiceRepository(db).get_filtered_invoices(filters)
+        if reference_date is None:
+            reference_date = date.today()
+        rows = InvoiceRepository(db).get_filtered_invoices(
+            filters, reference_date=reference_date
+        )
         
         clients: dict[int, dict[str, Any]] = {}
-        total_amount = 0.0
-        total_overdue_amount = 0.0
+        total_amount = Decimal("0.00")
+        total_overdue_amount = Decimal("0.00")
 
         for client, invoice in rows:
-            atraso = InvoiceService._calculate_days_overdue(invoice.due_date)
+            atraso = InvoiceService._calculate_days_overdue(
+                invoice.due_date, reference_date
+            )
             is_critical = atraso > 30
 
             client_data = clients.setdefault(
@@ -58,7 +66,7 @@ class InvoiceService:
                 {
                     "client_id": client.id,
                     "client_name": client.company_name,
-                    "open_balance": 0.0,
+                    "open_balance": Decimal("0.00"),
                     "invoices": [],
                 },
             )
@@ -86,14 +94,6 @@ class InvoiceService:
         }
     
     @staticmethod
-    def _calculate_days_overdue(vencimento: date) -> int:
-        """Calcula dias corridos de atraso em relação à data atual."""
-        hoje = date.today()
-        if hoje > vencimento:
-            return (hoje - vencimento).days
-        return 0
-
-    @staticmethod
     def generate_financial_summary(db: Session, client_id: int, data_inicio: date, data_fim: date) -> dict:
         """
         [T037] Formata a agregação do banco em um relatório consolidado.
@@ -104,9 +104,9 @@ class InvoiceService:
         resumo = {
             "period": {"start": data_inicio, "end": data_fim},
             "metrics": {
-                "paid_amount": 0.0,
-                "pending_amount": 0.0,
-                "canceled_amount": 0.0,
+                "paid_amount": Decimal("0.00"),
+                "pending_amount": Decimal("0.00"),
+                "canceled_amount": Decimal("0.00"),
                 "total_invoices_count": 0
             }
         }

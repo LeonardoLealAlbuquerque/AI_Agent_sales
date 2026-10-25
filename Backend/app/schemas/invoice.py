@@ -2,11 +2,12 @@ from pydantic import BaseModel, Field
 from datetime import date
 from typing import Optional
 from app.models.invoice import InvoiceStatus
+from app.schemas.money import Money
 
 
 class InvoiceCreate(BaseModel):
     client_id: int = Field(..., ge=1, description="ID do cliente associado à fatura.")
-    amount: float = Field(..., gt=0, description="Valor positivo da fatura.", examples=[1500.0])
+    amount: Money = Field(..., gt=0, description="Valor positivo da fatura.", examples=[1500.0])
     due_date: date = Field(..., description="Data de vencimento no formato YYYY-MM-DD.")
     status: InvoiceStatus = Field(
         InvoiceStatus.PENDING,
@@ -21,7 +22,7 @@ class InvoiceCreate(BaseModel):
 class InvoiceResponse(BaseModel):
     id: int
     client_id: int
-    amount: float
+    amount: Money
     due_date: date
     payment_date: Optional[date]
     status: InvoiceStatus
@@ -31,15 +32,15 @@ class InvoiceResponse(BaseModel):
 
 class OverdueInvoice(BaseModel):
     id: int
-    amount: float
+    amount: Money
     due_date: date
     days_overdue: int
     critical_status: bool
 
 class BillingMetricsSummary(BaseModel):
-    paid_amount: float
-    pending_amount: float
-    canceled_amount: float
+    paid_amount: Money
+    pending_amount: Money
+    canceled_amount: Money
     total_invoices_count: int
 
 class PeriodSummary(BaseModel):
@@ -62,8 +63,8 @@ class InvoiceFilterParams(BaseModel):
         False, description="Se True, filtra apenas faturas pendentes com vencimento no passado"
     )
     
-    min_amount: Optional[float] = Field(None, ge=0, description="Valor mínimo da fatura")
-    max_amount: Optional[float] = Field(None, ge=0, description="Valor máximo da fatura")
+    min_amount: Optional[Money] = Field(None, ge=0, description="Valor mínimo da fatura")
+    max_amount: Optional[Money] = Field(None, ge=0, description="Valor máximo da fatura")
     
     payment_date_start: Optional[date] = Field(
         None, description="Filtra faturas pagas a partir dessa data (YYYY-MM-DD)"

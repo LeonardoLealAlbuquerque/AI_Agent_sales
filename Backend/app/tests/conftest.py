@@ -17,6 +17,14 @@ from app.models.invoice import Invoice
 from pathlib import Path
 from unittest.mock import patch
 
+
+class FixedEmbeddingFunction:
+    """A deterministic embedding double that never downloads a model."""
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in input]
+
+
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
@@ -95,6 +103,12 @@ def isolated_chroma_service(tmp_path):
     test_dir = str(tmp_path / "isolated_chroma_db")
     service = ChromaDBService(
         persist_directory=test_dir,
-        collection_name="test_isolated_kb"
+        collection_name="test_isolated_kb",
+        embedding_function=FixedEmbeddingFunction(),
     )
     return service
+
+
+@pytest.fixture
+def test_embedding_function():
+    return FixedEmbeddingFunction()

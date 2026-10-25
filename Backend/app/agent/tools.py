@@ -1,8 +1,12 @@
 import json
-from typing import Dict, Any, Callable
+import logging
+from typing import Any, Callable, Dict
 from langchain_core.tools import tool
 
-from app.services.chromadb_service import ChromaDBService
+from app.services.chromadb_service import (
+    ChromaDBService,
+    KnowledgeBaseNotReadyError,
+)
 from app.api.tools import (
     get_client_risk_analysis,
     get_client_credit_limit,
@@ -12,7 +16,16 @@ from app.api.tools import (
     get_order_details
 )
 
-chroma_service = ChromaDBService()
+logger = logging.getLogger(__name__)
+_chroma_service: ChromaDBService | None = None
+
+
+def get_chroma_service() -> ChromaDBService:
+    """Create the persistent Chroma client only when a KB operation is requested."""
+    global _chroma_service
+    if _chroma_service is None:
+        _chroma_service = ChromaDBService()
+    return _chroma_service
 
 @tool
 def buscar_regras_negociacao(query: str) -> str:
@@ -26,7 +39,10 @@ def buscar_regras_negociacao(query: str) -> str:
         return json.dumps({"error": "Parâmetro 'query' é obrigatório para buscar na KB."})
 
     try:
-        results = chroma_service.search_similarity(query=query, n_results=3)
+        results = get_chroma_service().search_similarity(
+            query=query,
+            n_results=3,
+        )
         
         if not results:
             return json.dumps({
@@ -48,9 +64,16 @@ def buscar_regras_negociacao(query: str) -> str:
             "regras_encontradas": "\n\n".join(formatted_chunks)
         }, ensure_ascii=False)
 
-    except Exception as e:
+    except KnowledgeBaseNotReadyError as e:
         return json.dumps({
-            "error": f"Base de Conhecimento (KB) temporariamente indisponível: {str(e)}"
+            "status": "not_ready",
+            "message": str(e),
+        }, ensure_ascii=False)
+    except Exception:
+        logger.exception("Falha ao consultar a base de conhecimento do playbook.")
+        return json.dumps({
+            "status": "unavailable",
+            "message": "A base de conhecimento está temporariamente indisponível.",
         }, ensure_ascii=False)
 
 

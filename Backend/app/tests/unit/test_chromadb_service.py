@@ -1,6 +1,7 @@
 import os
 import pytest
 from app.services.chromadb_service import ChromaDBService
+from app.services.chromadb_service import KnowledgeBaseNotReadyError
 
 
 @pytest.fixture
@@ -23,12 +24,13 @@ Qualquer exceção exige aprovação da gerência.
 
 
 @pytest.fixture
-def chroma_service(tmp_path):
+def chroma_service(tmp_path, test_embedding_function):
     """Instancia o ChromaDBService isolado em um diretório temporário para os testes."""
     test_dir = str(tmp_path / "chroma_test_db")
     service = ChromaDBService(
         persist_directory=test_dir,
-        collection_name="test_kb_collection"
+        collection_name="test_kb_collection",
+        embedding_function=test_embedding_function,
     )
     return service
 
@@ -60,7 +62,7 @@ def test_ingest_playbook_headers_metadata_and_non_empty_chunks(chroma_service, t
     assert "metadata" in top_result
     
     # Valida metadados obrigatórios de origem e seção
-    assert top_result["metadata"]["source"] == test_markdown_file
+    assert top_result["metadata"]["source"] == os.path.basename(test_markdown_file)
     assert "section" in top_result["metadata"]
     assert top_result["metadata"]["section"] != ""
 
@@ -76,7 +78,7 @@ def test_ingest_idempotency_and_force_recreate(chroma_service, test_markdown_fil
     res2 = chroma_service.ingest_playbook(file_path=test_markdown_file, force_recreate=False)
     assert res2["status"] == "skipped"
     assert res2["chunks_count"] == initial_chunks
-    assert "já alimentada" in res2["message"].lower()
+    assert "já corresponde" in res2["message"].lower()
 
     # 3ª execução com recriação forçada: deve limpar a coleção e reingerir
     res3 = chroma_service.ingest_playbook(file_path=test_markdown_file, force_recreate=True)
@@ -84,9 +86,41 @@ def test_ingest_idempotency_and_force_recreate(chroma_service, test_markdown_fil
     assert res3["chunks_count"] == initial_chunks
 
 
-def test_search_similarity_empty_collection(tmp_path):
-    """Garante resiliência ao executar busca em uma coleção que ainda não possui documentos."""
-    test_dir = str(tmp_path / "empty_chroma_db")
-    service = ChromaDBService(persist_directory=test_dir, collection_name="empty_collection")
-    results = service.search_similarity(query="qualquer termo de busca")
-    assert results == []
+def test_reingest_updates_changed_playbook_and_removes_stale_chunks(
+    chroma_service,
+    test_markdown_file,
+    tmp_path,
+):
+    chroma_service.ingest_playbook(file_path=test_markdown_file)
+    source = tmp_path / "updated_playbook.md"
+    source.write_text(
+        "# Playbook\n## Atualização\nA política atualizada exige aprovação formal.",
+        encoding="utf-8",
+    )
+
+    updated_result = chroma_service.ingest_playbook(file_path=str(source))
+
+    assert updated_result["status"] == "success"
+    assert chroma_service.collection.count() == 1
+    assert chroma_service.get_status(str(source))["status"] == "ready"
+    assert chroma_service.get_status(test_markdown_file)["reason"] == "index_stale"
+
+
+def test_search_similarity_rejects_uninitialized_collection(
+    chroma_service,
+):
+    with pytest.raises(KnowledgeBaseNotReadyError, match="ainda não foi ingerido"):
+        chroma_service.search_similarity(query="qualquer termo de busca")
+
+
+def test_index_status_detects_playbook_changes(
+    chroma_service,
+    test_markdown_file,
+):
+    chroma_service.ingest_playbook(file_path=test_markdown_file)
+    assert chroma_service.get_status(test_markdown_file)["status"] == "ready"
+
+    with open(test_markdown_file, "a", encoding="utf-8") as playbook:
+        playbook.write("\n## Nova política\nAtualização.")
+
+    assert chroma_service.get_status(test_markdown_file)["reason"] == "index_stale"
