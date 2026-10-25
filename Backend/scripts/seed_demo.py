@@ -1,6 +1,7 @@
 import sys
 import os
 from datetime import date, timedelta
+from decimal import Decimal
 
 # Adiciona o diretório raiz ao path para permitir as importações do pacote 'app'
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,19 +26,19 @@ def popular_banco():
         print("⏳ Injetando cenário demonstrativo (Seed Demo)...")
 
         # Cliente 1: Risco Baixo
-        c1 = Client(company_name="Tech Solutions B2B", cnpj="12345678000199", credit_limit=50000.0, status="ACTIVE")
+        c1 = Client(company_name="Tech Solutions B2B", cnpj="12345678000199", credit_limit=Decimal("50000.00"), status="ACTIVE")
         # Cliente 2: Risco Alto (Inadimplente)
-        c2 = Client(company_name="Risco Elevado LTDA", cnpj="98765432000188", credit_limit=10000.0, status="ACTIVE")
+        c2 = Client(company_name="Risco Elevado LTDA", cnpj="98765432000188", credit_limit=Decimal("10000.00"), status="ACTIVE")
         db.add_all([c1, c2])
         db.commit()
 
         # Faturas
-        f_pendente = Invoice(client_id=c1.id, amount=2500.0, due_date=hoje + timedelta(days=10), status=InvoiceStatus.PENDING)
-        f_vencida = Invoice(client_id=c2.id, amount=1500.0, due_date=hoje - timedelta(days=35), status=InvoiceStatus.PENDING)
+        f_pendente = Invoice(client_id=c1.id, amount=Decimal("2500.00"), due_date=hoje + timedelta(days=10), status=InvoiceStatus.PENDING)
+        f_vencida = Invoice(client_id=c2.id, amount=Decimal("1500.00"), due_date=hoje - timedelta(days=35), status=InvoiceStatus.PENDING)
         db.add_all([f_pendente, f_vencida])
 
         # Pedidos
-        pedido = Order(client_id=c1.id, status=OrderStatus.PENDING, total_amount=1500.0, created_at=hoje, estimated_delivery_date=hoje + timedelta(days=5))
+        pedido = Order(client_id=c1.id, status=OrderStatus.PENDING, total_amount=Decimal("1500.00"), created_at=hoje, estimated_delivery_date=hoje + timedelta(days=5))
         db.add(pedido)
 
         db.commit()

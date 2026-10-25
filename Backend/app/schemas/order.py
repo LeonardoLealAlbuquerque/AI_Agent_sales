@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional
 from datetime import date
+from decimal import Decimal
 from app.schemas.consult import IdMixin
+from app.schemas.money import Money
 from app.models.order import OrderStatus
 
 
@@ -9,8 +11,8 @@ class OrderItemCreate(BaseModel):
     product_id: int = Field(..., ge=1, description="Identificador do produto.")
     product_name: str = Field(..., min_length=1, description="Nome do produto.")
     quantity: int = Field(1, ge=1, description="Quantidade solicitada.")
-    unit_price: float = Field(..., ge=0, description="Preço unitário do produto.")
-    discount: float = Field(0, ge=0, description="Desconto total aplicado ao item.")
+    unit_price: Money = Field(..., ge=0, description="Preço unitário do produto.")
+    discount: Money = Field(Decimal("0.00"), ge=0, description="Desconto total aplicado ao item.")
 
     @field_validator("product_name")
     @classmethod
@@ -39,8 +41,8 @@ class OrderItemPatch(BaseModel):
     product_id: Optional[int] = Field(None, ge=1)
     product_name: Optional[str] = Field(None, min_length=1)
     quantity: Optional[int] = Field(None, ge=1)
-    unit_price: Optional[float] = Field(None, ge=0)
-    discount: Optional[float] = Field(None, ge=0)
+    unit_price: Optional[Money] = Field(None, ge=0)
+    discount: Optional[Money] = Field(None, ge=0)
 
     @field_validator("product_name")
     @classmethod
@@ -66,10 +68,10 @@ class OrderItemResponse(BaseModel):
     order_id: int
     product_id: int
     product_name: str
-    unit_price: float
+    unit_price: Money
     quantity: int
-    discount: float
-    subtotal: float
+    discount: Money
+    subtotal: Money
 
     class Config:
         from_attributes = True
@@ -79,8 +81,8 @@ class OrderItem(IdMixin):
     """Schema para os produtos dentro de um pedido."""
     product_name: str
     quantity: int
-    unit_price: float
-    subtotal: float
+    unit_price: Money
+    subtotal: Money
 
     class Config:
         from_attributes = True
@@ -97,7 +99,7 @@ class OrderSummary(IdMixin):
     client_id: int
     status: str
     created_at: date
-    total_amount: float
+    total_amount: Money
     delivery_info: DeliveryInfo
 
     class Config:

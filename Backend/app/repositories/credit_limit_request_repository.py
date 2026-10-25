@@ -1,6 +1,8 @@
 from typing import Optional
 
 from sqlalchemy import select
+from decimal import Decimal
+
 from sqlalchemy.orm import Session
 
 from app.models.credit_limit_request import CreditLimitRequest
@@ -23,8 +25,8 @@ class CreditLimitRequestRepository(BaseRepository[CreditLimitRequest]):
     def create(
         self,
         client_id: int,
-        current_limit: float,
-        requested_limit: float,
+        current_limit: Decimal,
+        requested_limit: Decimal,
         justification: str,
     ) -> CreditLimitRequest:
         request = CreditLimitRequest(

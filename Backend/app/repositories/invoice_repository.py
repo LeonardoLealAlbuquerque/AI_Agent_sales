@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from sqlalchemy import or_, cast, String
 from typing import Sequence, Tuple
 from sqlalchemy import select, func
@@ -25,20 +26,22 @@ class InvoiceRepository(BaseRepository[Invoice]):
         self.db.flush()
         return invoice
 
-    def calculate_client_exposure(self, client_id: int) -> float:
+    def calculate_client_exposure(self, client_id: int) -> Decimal:
         """[T022] Mantendo a função que já existia para o CreditoService."""
         #func.sum soma o valor de todas as faturas do cliente
         #func.coalesce retorna 0 caso não haja faturas pendentes evitando retornar NULL
         #select é usado para construir a query SQL
         #where filtra as faturas do cliente com status PENDING (pendentes)
-        stmt = select(func.coalesce(func.sum(Invoice.amount), 0.0)).where(
+        stmt = select(func.coalesce(func.sum(Invoice.amount), Decimal("0.00"))).where(
             Invoice.client_id == client_id,
             Invoice.status == InvoiceStatus.PENDING
         )
         #self.db.scalar(stmt) executa a query no banco de dados e extrai diretamente o valor numérico resultante
-        return self.db.scalar(stmt)
+        return self.db.scalar(stmt) or Decimal("0.00")
 
-    def get_filtered_invoices(self, params: InvoiceFilterParams):
+    def get_filtered_invoices(
+        self, params: InvoiceFilterParams, reference_date: date
+    ):
         query = self.db.query(Client, Invoice).join(Invoice, Client.id == Invoice.client_id)
 
         if params.client_id:
@@ -50,7 +53,7 @@ class InvoiceRepository(BaseRepository[Invoice]):
         if params.only_overdue:
             query = query.filter(
                 Invoice.status == InvoiceStatus.PENDING,
-                Invoice.due_date < date.today()
+                Invoice.due_date < reference_date
             ).order_by(Invoice.due_date.asc())
 
         if params.min_amount is not None:
@@ -81,7 +84,7 @@ class InvoiceRepository(BaseRepository[Invoice]):
     
     def get_billing_summary_by_period(
         self, client_id: int, data_inicio: date, data_fim: date
-    ) -> Sequence[Tuple[InvoiceStatus, int, float]]:
+    ) -> Sequence[Tuple[InvoiceStatus, int, Decimal]]:
         """
         [T036] Agrega a quantidade e o valor total agrupado por status.
         O banco de dados faz a matemática pesada usando GROUP BY.

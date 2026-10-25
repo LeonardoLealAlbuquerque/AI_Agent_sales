@@ -1,4 +1,6 @@
-from sqlalchemy import ForeignKey, Float, CheckConstraint
+from decimal import Decimal
+
+from sqlalchemy import CheckConstraint, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -16,9 +18,13 @@ class OrderItem(Base):
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id: Mapped[int] = mapped_column(nullable=False, index=True) 
     product_name: Mapped[str] = mapped_column(nullable=False)
-    unit_price: Mapped[float] = mapped_column(Float, nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     quantity: Mapped[int] = mapped_column(default=1)
-    discount: Mapped[float] = mapped_column(Float, default=0.0)
-    subtotal: Mapped[float] = mapped_column(Float, default=0.0)
+    discount: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), default=Decimal("0.00"), nullable=False
+    )
+    subtotal: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), default=Decimal("0.00"), nullable=False
+    )
 
     order: Mapped["Order"] = relationship(backref="items")

@@ -1,5 +1,6 @@
 import json
 import logging
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Iterator
 from sqlalchemy.orm import Session
@@ -12,6 +13,52 @@ from app.repositories.conversation_repository import ConversationRepository
 from app.db.session import SessionLocal  # Import adicionado
 
 logger = logging.getLogger("b2b_agent.orchestrator")
+
+
+def _tool_result_succeeded(tool_result: str) -> bool:
+    try:
+        result_data = json.loads(tool_result)
+    except json.JSONDecodeError:
+        return "error" not in tool_result.lower()
+
+    if not isinstance(result_data, dict):
+        return True
+    return (
+        "error" not in result_data
+        and result_data.get("status")
+        not in {"warning", "not_ready", "unavailable"}
+    )
+
+
+POLICY_QUERY_TERMS = (
+    "politica",
+    "playbook",
+    "regra",
+    "alcada",
+    "autoridade",
+    "desconto",
+    "abatimento",
+    "negoci",
+    "condic",
+    "parcel",
+    "prazo",
+    "juros",
+    "multa",
+    "retencao",
+    "cobranca",
+    "escalon",
+    "aprova",
+)
+
+
+def _requires_policy_retrieval(message: str) -> bool:
+    normalized = unicodedata.normalize("NFKD", message.casefold())
+    normalized = "".join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character)
+    )
+    return any(term in normalized for term in POLICY_QUERY_TERMS)
 
 
 class AgentService:
@@ -49,6 +96,48 @@ class AgentService:
             self.db.commit()
 
         tools_used: List[ToolCallInfo] = []
+        if _requires_policy_retrieval(request.message):
+            retrieval_result = execute_tool(
+                "buscar_regras_negociacao",
+                {"query": request.message},
+            )
+            try:
+                retrieval_data = json.loads(retrieval_result)
+            except (TypeError, json.JSONDecodeError):
+                retrieval_data = {
+                    "status": "unavailable",
+                    "message": "A busca do playbook retornou uma resposta inválida.",
+                }
+
+            retrieval_status = retrieval_data.get("status")
+            tools_used.append(
+                ToolCallInfo(
+                    tool_name="buscar_regras_negociacao",
+                    arguments={"query": request.message},
+                    success=retrieval_status == "success",
+                )
+            )
+            if retrieval_status == "success":
+                policy_instruction = (
+                    "A busca obrigatória no playbook foi concluída. Use os trechos "
+                    "recuperados a seguir como fonte de política; não amplie nem "
+                    "invente regras que não estejam neles.\n"
+                    f"{retrieval_data.get('regras_encontradas', '')}"
+                )
+            else:
+                policy_instruction = (
+                    "A busca obrigatória no playbook não encontrou orientação "
+                    "verificável ou a base não está pronta/disponível. Não afirme "
+                    "regras como fatos nem as deduza. Informe explicitamente que "
+                    "não foi possível confirmar a política no playbook e recomende "
+                    "validar com a área responsável."
+                )
+                logger.warning(
+                    "Recuperação obrigatória de política sem resultado utilizável: %s",
+                    retrieval_status,
+                )
+            messages[0]["content"] += f"\n\n{policy_instruction}"
+
         max_turns = 5
 
         for turn in range(max_turns):
@@ -110,7 +199,7 @@ class AgentService:
                         tool_name = tool_call.function.name
                         tool_call_id = tool_call.id
                     
-                    is_success = "error" not in tool_result
+                    is_success = _tool_result_succeeded(tool_result)
                     tools_used.append(ToolCallInfo(
                         tool_name=tool_name,
                         arguments=arguments,
@@ -142,8 +231,11 @@ class AgentService:
                 
                 def gerador_de_streaming():
                     tools_data = [t.dict() if hasattr(t, 'dict') else t.__dict__ for t in tools_used]
-                    dados_ferramentas = json.dumps({"tools_used": tools_data}, ensure_ascii=False)
-                    yield f"{dados_ferramentas}\n|||\n"
+                    metadata = {
+                        "conversation_id": conversation_id,
+                        "tools_used": tools_data,
+                    }
+                    yield f"{json.dumps(metadata, ensure_ascii=False)}\n|||\n"
 
                     texto_completo = ""
                     try:
@@ -189,11 +281,14 @@ class AgentService:
 
         logger.warning(f"[AGENT TIMEOUT] Limite de {max_turns} iterações atingido na sessão {request.conversation_id}")
         def gerador_de_timeout():
-            dados_ferramentas = json.dumps(
-                {"tools_used": [t.dict() if hasattr(t, 'dict') else t.__dict__ for t in tools_used]}, 
-                ensure_ascii=False
-            )
-            yield f"{dados_ferramentas}\n|||\n"
+            metadata = {
+                "conversation_id": conversation_id,
+                "tools_used": [
+                    t.dict() if hasattr(t, "dict") else t.__dict__
+                    for t in tools_used
+                ],
+            }
+            yield f"{json.dumps(metadata, ensure_ascii=False)}\n|||\n"
             msg_timeout = "Limite máximo de processamento atingido. Por favor, seja mais específico na sua pergunta."
             yield msg_timeout
             

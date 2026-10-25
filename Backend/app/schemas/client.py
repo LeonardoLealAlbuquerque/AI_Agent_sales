@@ -1,15 +1,17 @@
 import re
+from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 from typing import List, Optional
 from app.schemas.consult import IdMixin
+from app.schemas.money import Money
 
 class ClientResponse(IdMixin):
     """Schema para retornar os dados básicos do cliente na API."""
     company_name: str
     cnpj: str
     status: str
-    credit_limit: float
+    credit_limit: Money
 
     class Config:
         # Permite que o Pydantic leia o objeto do banco de dados (SQLAlchemy) diretamente
@@ -30,8 +32,8 @@ class ClientCreate(BaseModel):
         description="CNPJ com ou sem pontuação; será armazenado apenas com dígitos.",
         examples=["12.345.678/0001-95"],
     )
-    credit_limit: float = Field(
-        0,
+    credit_limit: Money = Field(
+        Decimal("0.00"),
         ge=0,
         description="Limite de crédito inicial. Não pode ser negativo.",
         examples=[5000.0],
@@ -58,9 +60,9 @@ class ClientFilterParams(BaseModel):
     client_id: Optional[int] = Field(None, ge=1)
     name: Optional[str] = Field(None, min_length=1)
     cnpj: Optional[str] = Field(None, min_length=1, max_length=32)
-    credit_limit: Optional[float] = Field(None, ge=0)
-    min_credit_limit: Optional[float] = Field(None, ge=0)
-    max_credit_limit: Optional[float] = Field(None, ge=0)
+    credit_limit: Optional[Money] = Field(None, ge=0)
+    min_credit_limit: Optional[Money] = Field(None, ge=0)
+    max_credit_limit: Optional[Money] = Field(None, ge=0)
     status: Optional[str] = Field(None, min_length=1)
     limit: int = Field(50, ge=1, le=100)
     skip: int = Field(0, ge=0)
@@ -83,9 +85,9 @@ class ClientFilterParams(BaseModel):
 class CreditAnalyticResponse(BaseModel):
     """Schema de resposta com a inteligência financeira do cliente."""
     client_id: int
-    credit_limit: float = Field(..., description="Limite total concedido ao cliente")
-    current_exposure: float = Field(..., description="Soma de faturas em aberto não canceladas")
-    available_credit: float = Field(..., description="Crédito real disponível para novas compras")
+    credit_limit: Money = Field(..., description="Limite total concedido ao cliente")
+    current_exposure: Money = Field(..., description="Soma de faturas em aberto não canceladas")
+    available_credit: Money = Field(..., description="Crédito real disponível para novas compras")
     is_blocked: bool = Field(..., description="True se o cliente não pode comprar")
     block_reasons: List[str] = Field(
         default_factory=list, 
@@ -94,7 +96,7 @@ class CreditAnalyticResponse(BaseModel):
 
 
 class CreditLimitRequestCreate(BaseModel):
-    requested_limit: float = Field(
+    requested_limit: Money = Field(
         ...,
         ge=0,
         description="Limite solicitado para avaliação da gerência; não altera o limite atual.",
@@ -112,7 +114,7 @@ class CreditLimitRequestCreate(BaseModel):
 
 
 class CreditLimitRequestPatch(BaseModel):
-    requested_limit: Optional[float] = Field(None, ge=0)
+    requested_limit: Optional[Money] = Field(None, ge=0)
     justification: Optional[str] = Field(None, min_length=5, max_length=1000)
 
     @field_validator("justification")
@@ -137,8 +139,8 @@ class CreditLimitRequestPatch(BaseModel):
 class CreditLimitRequestResponse(BaseModel):
     id: int
     client_id: int
-    current_limit: float
-    requested_limit: float
+    current_limit: Money
+    requested_limit: Money
     justification: str
     status: str
     created_at: datetime

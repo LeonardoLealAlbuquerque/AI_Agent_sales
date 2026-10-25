@@ -1,8 +1,11 @@
-import pytest
-from sqlalchemy import func, select
+import json
 from unittest.mock import MagicMock, patch
 
-from app.agent.service import AgentService
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.orm import sessionmaker
+
+from app.agent.service import AgentService, _requires_policy_retrieval
 from app.db.session import SessionLocal
 from app.models.client import Client
 from app.models.invoice import Invoice
@@ -12,12 +15,13 @@ from app.services.chromadb_service import ChromaDBService
 
 
 @pytest.fixture
-def prepare_chroma_kb(tmp_path):
+def prepare_chroma_kb(tmp_path, test_embedding_function):
     """Inicializa uma base do ChromaDB temporária e ingere dados simulados do Playbook."""
     test_dir = str(tmp_path / "chroma_integration_db")
     service = ChromaDBService(
         persist_directory=test_dir, 
-        collection_name="test_integration_kb"
+        collection_name="test_integration_kb",
+        embedding_function=test_embedding_function,
     )
     
     md_content = """# Playbook de Negociação B2B
@@ -38,6 +42,64 @@ def llm_response(content=None, tool_calls=None):
     return response
 
 
+def test_new_conversation_id_is_in_stream_metadata(db):
+    mock_llm = MagicMock()
+    stream_chunk = MagicMock()
+    stream_chunk.choices[0].delta.content = "Olá!"
+    mock_llm.chat_completion.side_effect = [
+        llm_response(content="Resposta inicial"),
+        iter([stream_chunk]),
+    ]
+    stream_session_factory = sessionmaker(bind=db.get_bind())
+
+    with patch(
+        "app.agent.service.SessionLocal",
+        side_effect=stream_session_factory,
+    ):
+        chunks = list(
+            AgentService(llm_client=mock_llm, db=db).run(
+                ChatRequest(message="Oi!")
+            )
+        )
+
+    streamed_response = "".join(chunks)
+    metadata_text, response_text = streamed_response.split("\n|||\n", maxsplit=1)
+    metadata = json.loads(metadata_text)
+
+    assert metadata["conversation_id"]
+    assert metadata["tools_used"] == []
+    assert response_text == "Olá!"
+    assert ConversationRepository(db).get(metadata["conversation_id"]) is not None
+
+
+def test_iteration_limit_stream_includes_conversation_id(db):
+    mock_llm = MagicMock()
+    repeated_tool_call = {
+        "id": "call-unknown",
+        "type": "function",
+        "function": {
+            "name": "unknown_tool",
+            "arguments": "{}",
+        },
+    }
+    mock_llm.chat_completion.return_value = llm_response(
+        tool_calls=[repeated_tool_call]
+    )
+
+    chunks = list(
+        AgentService(llm_client=mock_llm, db=db).run(
+            ChatRequest(message="Consulte os dados.")
+        )
+    )
+
+    metadata_text, response_text = "".join(chunks).split("\n|||\n", maxsplit=1)
+    metadata = json.loads(metadata_text)
+
+    assert metadata["conversation_id"]
+    assert len(metadata["tools_used"]) == 5
+    assert "Limite máximo de processamento" in response_text
+
+
 def test_agent_rag_tool_invocation_and_snippet_return(prepare_chroma_kb):
     """Testa busca RAG, retorno de trecho e continuidade do historico."""
     mock_llm = MagicMock()
@@ -50,22 +112,41 @@ def test_agent_rag_tool_invocation_and_snippet_return(prepare_chroma_kb):
             "arguments": '{"query": "desconto para pagamento à vista"}'
         }
     }
+    stream_chunk = MagicMock()
+    stream_chunk.choices[0].delta.content = "Conforme o Playbook, você opera sob alçada zero."
     mock_llm.chat_completion.side_effect = [
         llm_response(tool_calls=[mock_tool_call]),
         llm_response(
             content="Conforme o Playbook, você opera sob alçada zero. Descontos exigem aprovação gerencial."
         ),
+        iter([stream_chunk]),
     ]
 
-    with patch("app.agent.tools.chroma_service", prepare_chroma_kb):
-        response = AgentService(llm_client=mock_llm).run(
+    with patch(
+        "app.agent.tools.get_chroma_service",
+        return_value=prepare_chroma_kb,
+    ):
+        chunks = list(AgentService(llm_client=mock_llm).run(
             ChatRequest(message="Qual a regra de desconto?")
-        )
+        ))
 
-    assert "alçada zero" in response.response
-    assert mock_llm.chat_completion.call_count == 2
+    assert "alçada zero" in "".join(chunks)
+    assert mock_llm.chat_completion.call_count == 3
+    first_call_messages = mock_llm.chat_completion.call_args_list[0].kwargs["messages"]
+    policy_context = next(
+        message["content"]
+        for message in first_call_messages
+        if message["role"] == "system"
+        and "A busca obrigatória no playbook foi concluída" in message["content"]
+    )
+    assert "alçada zero" in policy_context.lower()
     message_history = mock_llm.chat_completion.call_args_list[-1].kwargs["messages"]
-    assert [msg["role"] for msg in message_history] == ["system", "user", "assistant", "tool"]
+    assert [msg["role"] for msg in message_history] == [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+    ]
     tool_msg = next(msg for msg in message_history if msg["role"] == "tool")
     assert tool_msg["tool_call_id"] == "call_rag_001"
     assert "alçada zero" in tool_msg["content"].lower()
@@ -77,30 +158,61 @@ def test_agent_handling_kb_unavailable():
     """
     mock_llm = MagicMock()
 
-    mock_tool_call = {
-        "id": "call_rag_err",
-        "type": "function",
-        "function": {
-            "name": "buscar_regras_negociacao",
-            "arguments": '{"query": "política de parcelamento"}'
-        }
-    }
-    mock_llm.chat_completion.side_effect = [
-        llm_response(tool_calls=[mock_tool_call]),
-        llm_response(content="Desculpe, a base de conhecimento está temporariamente indisponível."),
-    ]
+    mock_llm.chat_completion.return_value = llm_response(
+        content="Não foi possível confirmar a orientação no playbook."
+    )
 
     mock_failing_chroma = MagicMock()
+    mock_failing_chroma.get_status.return_value = {
+        "status": "ready",
+        "chunks_count": 1,
+    }
     mock_failing_chroma.search_similarity.side_effect = RuntimeError("Falha de conexão com o ChromaDB")
 
-    with patch("app.agent.tools.chroma_service", mock_failing_chroma):
+    with patch(
+        "app.agent.tools.get_chroma_service",
+        return_value=mock_failing_chroma,
+    ):
         AgentService(llm_client=mock_llm).run(
             ChatRequest(message="Quais as regras de parcelamento?")
         )
 
-        message_history = mock_llm.chat_completion.call_args_list[-1].kwargs["messages"]
-        tool_msg = next(msg for msg in message_history if msg["role"] == "tool")
-        assert "indisponível" in tool_msg["content"].lower() or "error" in tool_msg["content"].lower()
+        message_history = mock_llm.chat_completion.call_args.kwargs["messages"]
+        retrieval_instruction = next(
+            message["content"]
+            for message in message_history
+            if message["role"] == "system"
+            and "A busca obrigatória no playbook" in message["content"]
+        )
+        assert "não afirme regras como fatos" in retrieval_instruction.lower()
+
+
+def test_knowledge_base_health_reports_unready_index(client):
+    with patch("app.main.get_chroma_service") as get_service:
+        get_service.return_value.get_status.return_value = {
+            "status": "not_ready",
+            "reason": "index_empty",
+            "message": "O playbook ainda não foi ingerido.",
+            "chunks_count": 0,
+        }
+
+        response = client.get("/health/knowledge-base")
+
+    assert response.status_code == 503
+    assert response.json()["reason"] == "index_empty"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Qual a política de parcelamento?",
+        "Existe prazo para pagamento?",
+        "Posso oferecer desconto?",
+        "Qual é o procedimento de escalonamento?",
+    ],
+)
+def test_policy_intents_are_routed_through_playbook_retrieval(message):
+    assert _requires_policy_retrieval(message)
 
 
 def test_agent_inclui_historico_e_instrucao_de_continuidade_em_followup(db):

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.models.client import Client
@@ -6,9 +8,9 @@ from app.models.invoice import Invoice
 
 class ValidationService:
     @staticmethod
-    def validate_order_total(order: Order) -> float:
+    def validate_order_total(order: Order) -> Decimal:
         if not order.items:
-            return 0.0
+            return Decimal("0.00")
 
         total = sum(item.subtotal for item in order.items)
 

@@ -1,6 +1,7 @@
 import enum
+from decimal import Decimal
 from datetime import date
-from sqlalchemy import ForeignKey, Date, Float, Enum
+from sqlalchemy import Date, Enum, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -18,7 +19,7 @@ class Invoice(Base):
         nullable=False, 
         index=True
     )
-    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[InvoiceStatus] = mapped_column(
