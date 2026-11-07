@@ -220,9 +220,9 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-conversation-title"
-            className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-5 text-gray-900 shadow-xl"
+            className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 p-5 text-gray-100 shadow-xl"
           >
-            <h2 id="delete-conversation-title" className="text-base font-semibold">
+            <h2 id="delete-conversation-title" className="text-base font-semibold text-gray-100">
               Deseja excluir a conversa?
             </h2>
             <div className="mt-5 flex justify-end gap-2">
@@ -231,7 +231,7 @@ export default function App() {
                 autoFocus
                 disabled={deletingConversationId !== null}
                 onClick={() => setConversationPendingDeletion(null)}
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
+                className="rounded-md border border-zinc-600 px-4 py-2 text-sm text-gray-200 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-500 disabled:opacity-50"
               >
                 Cancelar
               </button>

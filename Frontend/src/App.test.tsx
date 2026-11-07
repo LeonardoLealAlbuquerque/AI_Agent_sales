@@ -246,7 +246,14 @@ describe('Integração do App (Frontend)', () => {
     expect(deleteButton).toHaveClass('hover:text-red-500');
 
     fireEvent.click(deleteButton);
-    expect(screen.getByRole('dialog')).toHaveTextContent('Deseja excluir a conversa?');
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Deseja excluir a conversa?');
+    expect(dialog).toHaveClass('bg-zinc-900', 'text-gray-100', 'border-zinc-700');
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toHaveClass(
+      'text-gray-200',
+      'border-zinc-600',
+      'hover:bg-zinc-800',
+    );
     expect(api.deleteConversation).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
