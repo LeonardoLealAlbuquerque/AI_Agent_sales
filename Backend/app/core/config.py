@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = Field(default="", validation_alias="LLM_BASE_URL")
     LLM_TIMEOUT: int = Field(default=30, validation_alias="LLM_TIMEOUT")
     LLM_MAX_TOKENS: int = Field(default=2000, validation_alias="LLM_MAX_TOKENS")
+    AGENT_CONTEXT_BUDGET_TOKENS: int = Field(
+        default=6000,
+        gt=0,
+        validation_alias="AGENT_CONTEXT_BUDGET_TOKENS",
+    )
 
     @field_validator("LLM_API_KEY", mode="before")
     @classmethod

@@ -232,7 +232,7 @@ GROQ_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "buscar_regras_negociacao",
-            "description": "Consulta a base de conhecimento oficial (Playbook B2B) sobre políticas de desconto, parcelamento, prazos e alçadas de decisão.",
+            "description": "Consulta a base de conhecimento oficial (Playbook B2B) quando a intenção envolver políticas comerciais, incluindo paráfrases, sinônimos, perguntas indiretas e continuações de contexto sobre regras, alçadas, negociação, retenção, descontos, prazos, parcelamentos ou escalonamento.",
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -190,6 +190,7 @@ VITE_API_BASE_URL=http://localhost:8000
 - `DATABASE_URL` permite configurar outra URL SQLAlchemy.
 - A base vetorial do ChromaDB usa o armazenamento persistente em `Backend/data/chroma/`.
 - As configurações do modelo incluem `LLM_API_KEY`, `LLM_MODEL`, `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_TIMEOUT` e `LLM_MAX_TOKENS`. A integração efetiva do cliente LLM no código usa o SDK da Groq.
+- `AGENT_CONTEXT_BUDGET_TOKENS` define o orçamento estimado de tokens de entrada do agente (padrão `6000`), independente do limite de saída `LLM_MAX_TOKENS`. A estimativa por caracteres é aproximada; ajuste o valor ao limite do modelo e execute `alembic upgrade head` para persistir resumos incrementais das conversas.
 - O CORS da API está configurado para origens locais comuns: portas 5173 e 3000.
 
 ## Testes, lint e build

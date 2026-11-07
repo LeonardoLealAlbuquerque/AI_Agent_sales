@@ -12,6 +12,7 @@ from app.models.invoice import Invoice
 from app.schemas.agent import ChatRequest
 from app.repositories.conversation_repository import ConversationRepository
 from app.services.chromadb_service import ChromaDBService
+from app.agent.service import _estimated_token_count
 
 
 @pytest.fixture
@@ -187,6 +188,60 @@ def test_agent_handling_kb_unavailable():
         assert "não afirme regras como fatos" in retrieval_instruction.lower()
 
 
+def test_semantic_policy_intent_uses_model_selected_playbook_tool():
+    message = "Quais concessões cabem ao vendedor?"
+    assert not _requires_policy_retrieval(message)
+
+    mock_llm = MagicMock()
+    policy_tool_call = {
+        "id": "call-policy-semantic",
+        "type": "function",
+        "function": {
+            "name": "buscar_regras_negociacao",
+            "arguments": json.dumps({"query": message}, ensure_ascii=False),
+        },
+    }
+    stream_chunk = MagicMock()
+    stream_chunk.choices[0].delta.content = "Vou confirmar as diretrizes aplicáveis."
+    mock_llm.chat_completion.side_effect = [
+        llm_response(tool_calls=[policy_tool_call]),
+        llm_response(content="Resposta baseada nas diretrizes consultadas."),
+        iter([stream_chunk]),
+    ]
+    policy_result = json.dumps({
+        "status": "success",
+        "regras_encontradas": "As concessões dependem de aprovação gerencial.",
+    }, ensure_ascii=False)
+
+    with patch(
+        "app.agent.service.execute_tool",
+        return_value=policy_result,
+    ) as execute_tool:
+        chunks = list(
+            AgentService(llm_client=mock_llm).run(ChatRequest(message=message))
+        )
+
+    assert "Vou confirmar as diretrizes aplicáveis." in "".join(chunks)
+    execute_tool.assert_called_once_with(
+        "buscar_regras_negociacao",
+        {"query": message},
+    )
+    first_call = mock_llm.chat_completion.call_args_list[0].kwargs
+    available_tools = [
+        tool["function"]["name"] for tool in first_call["tools"]
+    ]
+    assert "buscar_regras_negociacao" in available_tools
+    assert "paráfrases" in first_call["messages"][0]["content"]
+    second_call_messages = mock_llm.chat_completion.call_args_list[1].kwargs[
+        "messages"
+    ]
+    assert any(
+        item["role"] == "tool"
+        and "aprovação gerencial" in item["content"]
+        for item in second_call_messages
+    )
+
+
 def test_knowledge_base_health_reports_unready_index(client):
     with patch("app.main.get_chroma_service") as get_service:
         get_service.return_value.get_status.return_value = {
@@ -266,6 +321,241 @@ def test_agent_inclui_historico_e_instrucao_de_continuidade_em_followup(db):
         if message["role"] == "tool"
     )
     assert llm_messages[-1]["content"] == "Com base na resposta anterior, qual é o risco dela?"
+
+
+def test_long_persisted_history_is_summarized_and_keeps_recent_tool_turn(db, monkeypatch):
+    repository = ConversationRepository(db)
+    conversation = repository.create("Memória longa")
+    repository.add_message(
+        conversation.id,
+        role="user",
+        content="Fato antigo importante: " + ("detalhe antigo " * 1200),
+    )
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content="O identificador confirmado é CLIENTE-042.",
+    )
+    repository.add_message(
+        conversation.id,
+        role="user",
+        content="Consulte os dados desse cliente.",
+    )
+    tool_calls = [{
+        "id": "call-client",
+        "type": "function",
+        "function": {"name": "list_clients", "arguments": '{"client_id": 42}'},
+    }]
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content=None,
+        tool_calls=tool_calls,
+    )
+    repository.add_message(
+        conversation.id,
+        role="tool",
+        content='{"client_id": 42, "company_name": "Exemplo LTDA"}',
+        tool_call_id="call-client",
+        name="list_clients",
+    )
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content="O cadastro encontrado é Exemplo LTDA.",
+    )
+    db.commit()
+    monkeypatch.setattr("app.agent.service.settings.AGENT_CONTEXT_BUDGET_TOKENS", 9000)
+
+    stream_chunk = MagicMock()
+    stream_chunk.choices[0].delta.content = "Resposta atual."
+    mock_llm = MagicMock()
+
+    def respond_to_completion(messages, tools=None, stream_response=False):
+        if "Atualize um resumo de memória" in messages[0]["content"]:
+            return llm_response(
+                content="O cliente CLIENTE-042 foi identificado; há histórico anterior."
+            )
+        if stream_response:
+            return iter([stream_chunk])
+        return llm_response(content="Resposta baseada no contexto recente.")
+
+    mock_llm.chat_completion.side_effect = respond_to_completion
+    stream_session_factory = sessionmaker(bind=db.get_bind())
+    with patch(
+        "app.agent.service.SessionLocal",
+        side_effect=stream_session_factory,
+    ):
+        list(
+            AgentService(llm_client=mock_llm, db=db).run(
+                ChatRequest(
+                    message="E qual é a situação agora?",
+                    conversation_id=conversation.id,
+                )
+            )
+        )
+
+    db.refresh(conversation)
+    assert conversation.summary == (
+        "O cliente CLIENTE-042 foi identificado; há histórico anterior."
+    )
+    assert conversation.summary_through_message_id == 2
+    summary_calls = [
+        call.kwargs
+        for call in mock_llm.chat_completion.call_args_list
+        if "Atualize um resumo de memória"
+        in call.kwargs["messages"][0]["content"]
+    ]
+    assert summary_calls
+    assert any(
+        "Fato antigo importante" in call["messages"][1]["content"]
+        for call in summary_calls
+    )
+    agent_call = next(
+        call.kwargs
+        for call in mock_llm.chat_completion.call_args_list
+        if call.kwargs.get("tools") is not None
+    )
+    agent_messages = agent_call["messages"]
+    assert any(
+        message["role"] == "system"
+        and "Resumo da memória anterior" in message["content"]
+        for message in agent_messages
+    )
+    assert any(message.get("tool_calls") == tool_calls for message in agent_messages)
+    assert any(
+        message.get("tool_call_id") == "call-client"
+        for message in agent_messages
+    )
+    assert any(
+        message.get("name") == "list_clients"
+        for message in agent_messages
+    )
+    assert not any(
+        "Fato antigo importante" in (message.get("content") or "")
+        for message in agent_messages
+    )
+    assert (
+        _estimated_token_count(agent_messages)
+        + _estimated_token_count(agent_call["tools"])
+        <= 9000
+    )
+
+    repository.add_message(
+        conversation.id,
+        role="user",
+        content="Novo histórico relevante: " + ("detalhe complementar " * 1200),
+    )
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content="A pendência continua em análise.",
+    )
+    db.commit()
+    previous_call_count = mock_llm.chat_completion.call_count
+    with patch(
+        "app.agent.service.SessionLocal",
+        side_effect=stream_session_factory,
+    ):
+        list(
+            AgentService(llm_client=mock_llm, db=db).run(
+                ChatRequest(
+                    message="Há atualização?",
+                    conversation_id=conversation.id,
+                )
+            )
+        )
+
+    incremental_summary_calls = [
+        call.kwargs
+        for call in mock_llm.chat_completion.call_args_list[previous_call_count:]
+        if "Atualize um resumo de memória"
+        in call.kwargs["messages"][0]["content"]
+    ]
+    assert incremental_summary_calls
+    assert any(
+        "O cliente CLIENTE-042 foi identificado" in json.loads(
+            call["messages"][1]["content"]
+        )["resumo_anterior"]
+        for call in incremental_summary_calls
+    )
+    db.refresh(conversation)
+    assert conversation.summary_through_message_id > 2
+
+
+def test_failed_history_summary_does_not_advance_cursor_or_persist_request(db, monkeypatch):
+    repository = ConversationRepository(db)
+    conversation = repository.create("Resumo indisponível")
+    repository.add_message(
+        conversation.id,
+        role="user",
+        content="Histórico extenso " + ("conteúdo " * 1500),
+    )
+    repository.add_message(
+        conversation.id,
+        role="assistant",
+        content="Resposta antiga.",
+    )
+    db.commit()
+    initial_message_count = len(repository.messages(conversation.id))
+    monkeypatch.setattr("app.agent.service.settings.AGENT_CONTEXT_BUDGET_TOKENS", 8500)
+
+    mock_llm = MagicMock()
+    mock_llm.chat_completion.side_effect = RuntimeError("summary provider unavailable")
+
+    with pytest.raises(RuntimeError, match="summary provider unavailable"):
+        AgentService(llm_client=mock_llm, db=db).run(
+            ChatRequest(
+                message="Nova pergunta",
+                conversation_id=conversation.id,
+            )
+        )
+
+    db.refresh(conversation)
+    assert conversation.summary is None
+    assert conversation.summary_through_message_id is None
+    assert len(repository.messages(conversation.id)) == initial_message_count
+
+
+def test_external_request_history_is_summarized_without_persisted_conversation(monkeypatch):
+    monkeypatch.setattr("app.agent.service.settings.AGENT_CONTEXT_BUDGET_TOKENS", 8500)
+    mock_llm = MagicMock()
+    stream_chunk = MagicMock()
+    stream_chunk.choices[0].delta.content = "Resposta."
+    def respond_to_completion(messages, tools=None, stream_response=False):
+        if "Atualize um resumo de memória" in messages[0]["content"]:
+            return llm_response(content="O pedido antigo foi o PED-123.")
+        if stream_response:
+            return iter([stream_chunk])
+        return llm_response(content="Entendido.")
+
+    mock_llm.chat_completion.side_effect = respond_to_completion
+    history = [
+        {"role": "user", "content": "Detalhes " + ("do pedido antigo " * 1500)},
+        {"role": "assistant", "content": "O pedido antigo foi o PED-123."},
+    ]
+
+    list(
+        AgentService(llm_client=mock_llm).run(
+            ChatRequest(message="Qual pedido?", history=history)
+        )
+    )
+
+    assert mock_llm.chat_completion.call_count > 3
+    current_context = next(
+        call.kwargs["messages"]
+        for call in mock_llm.chat_completion.call_args_list
+        if call.kwargs.get("tools") is not None
+    )
+    assert any(
+        "PED-123" in message.get("content", "")
+        and "Resumo da memória" in message.get("content", "")
+        for message in current_context
+    )
+    assert not any(
+        "Detalhes" in message.get("content", "")
+        for message in current_context
+    )
 
 
 def test_conversation_history_hides_internal_tool_messages(client, db):

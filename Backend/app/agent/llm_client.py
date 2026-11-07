@@ -20,7 +20,12 @@ class LLMUnavailableError(LLMError):
 # --- Contrato (Abstração) ---
 class BaseLLMClient(ABC):
     @abstractmethod
-    def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> Any:
+    def chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        stream_response: bool = False,
+    ) -> Any:
         """Executa uma chamada de chat completion no modelo."""
         pass
 
@@ -80,7 +85,12 @@ class MockLLMClient(BaseLLMClient):
         self.last_messages: List[Dict[str, Any]] = []
         self.last_tools: Optional[List[Dict[str, Any]]] = None
 
-    def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> Any:
+    def chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        stream_response: bool = False,
+    ) -> Any:
         self.last_messages = messages
         self.last_tools = tools
 

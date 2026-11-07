@@ -42,6 +42,63 @@ class ConversationRepository:
         )
         return self.db.scalars(statement).all()
 
+    def messages_before(
+        self,
+        conversation_id: str,
+        before_id: int | None = None,
+        limit: int = 50,
+        after_id: int | None = None,
+    ) -> List[ChatMessageRecord]:
+        statement = select(ChatMessageRecord).where(
+            ChatMessageRecord.conversation_id == conversation_id
+        )
+        if before_id is not None:
+            statement = statement.where(ChatMessageRecord.id < before_id)
+        if after_id is not None:
+            statement = statement.where(ChatMessageRecord.id > after_id)
+        statement = statement.order_by(ChatMessageRecord.id.desc()).limit(limit)
+        return list(self.db.scalars(statement).all())
+
+    def messages_for_summary(
+        self,
+        conversation_id: str,
+        after_id: int | None,
+        before_id: int,
+        limit: int = 50,
+    ) -> List[ChatMessageRecord]:
+        statement = (
+            select(ChatMessageRecord)
+            .where(
+                ChatMessageRecord.conversation_id == conversation_id,
+                ChatMessageRecord.id < before_id,
+            )
+            .order_by(ChatMessageRecord.id)
+            .limit(limit)
+        )
+        if after_id is not None:
+            statement = statement.where(ChatMessageRecord.id > after_id)
+        return list(self.db.scalars(statement).all())
+
+    @staticmethod
+    def format_message(record: ChatMessageRecord) -> dict[str, Any]:
+        msg: dict[str, Any] = {"role": record.role}
+
+        if record.content is not None:
+            msg["content"] = record.content
+        elif record.role == "assistant":
+            msg["content"] = None
+
+        if record.tool_calls:
+            msg["tool_calls"] = record.tool_calls
+
+        if record.tool_call_id:
+            msg["tool_call_id"] = record.tool_call_id
+
+        if record.name:
+            msg["name"] = record.name
+
+        return msg
+
     def add_message(
         self,
         conversation_id: str,
@@ -67,25 +124,17 @@ class ConversationRepository:
 
     def get_messages_for_llm(self, conversation_id: str) -> List[dict[str, Any]]:
         records = self.messages(conversation_id)
-        formatted: list[dict[str, Any]] = []
+        return [self.format_message(record) for record in records]
 
-        for record in records:
-            msg: dict[str, Any] = {"role": record.role}
-
-            if record.content is not None:
-                msg["content"] = record.content
-            elif record.role == "assistant":
-                msg["content"] = None
-
-            if record.tool_calls:
-                msg["tool_calls"] = record.tool_calls
-
-            if record.tool_call_id:
-                msg["tool_call_id"] = record.tool_call_id
-
-            if record.name:
-                msg["name"] = record.name
-
-            formatted.append(msg)
-
-        return formatted
+    def update_summary(
+        self,
+        conversation_id: str,
+        summary: str,
+        through_message_id: int | None,
+    ) -> None:
+        conversation = self.db.get(Conversation, conversation_id)
+        if conversation is None:
+            raise ValueError("Conversa não encontrada.")
+        conversation.summary = summary
+        if through_message_id is not None:
+            conversation.summary_through_message_id = through_message_id
