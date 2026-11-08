@@ -114,6 +114,7 @@ describe('Integração do App (Frontend)', () => {
 
     // VALIDAÇÃO VISUAL (Alinhamento)
     expect(userMsg.closest('.flex')).toHaveClass('justify-end'); // Usuário à direita
+    expect(userMsg.closest('.flex')).not.toHaveClass('user-message-enter');
     expect(botMsg.closest('.flex')).toHaveClass('justify-start'); // Agente à esquerda
   });
 
@@ -166,6 +167,7 @@ describe('Integração do App (Frontend)', () => {
     
     const sendButton = screen.getByRole('button', { name: /enviar mensagem/i });
     await user.click(sendButton);
+    expect(screen.getByText('Oi!').closest('.flex')).toHaveClass('user-message-enter');
 
     await waitFor(() => {
       expect(api.sendMessage).toHaveBeenCalledWith({

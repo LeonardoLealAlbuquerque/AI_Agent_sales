@@ -10,12 +10,13 @@ export interface Message {
 // 1. ATUALIZADO: Adicionadas as props error e onRetry que vêm do App.tsx
 interface ChatAreaProps {
   messages: Message[];
+  animatedMessageId?: string | null;
   isLoading?: boolean;
   error?: string | null; 
   onRetry?: () => void;  
 }
 
-export function ChatArea({ messages, isLoading, error, onRetry }: ChatAreaProps) {
+export function ChatArea({ messages, animatedMessageId, isLoading, error, onRetry }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export function ChatArea({ messages, isLoading, error, onRetry }: ChatAreaProps)
           key={message.id || index}
           role={message.role}
           content={message.content}
+          animateOnEnter={message.id === animatedMessageId}
         />
       ))}
 

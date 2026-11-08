@@ -12,6 +12,7 @@ export default function App() {
   const currentConversationId = conversationId ?? null;
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [animatedMessageId, setAnimatedMessageId] = useState<string | null>(null);
 
   const [isLoadingSidebar, setIsLoadingSidebar] = useState(false);
   const [sidebarError, setSidebarError] = useState<string | null>(null);
@@ -134,10 +135,12 @@ export default function App() {
     if (!text.trim() || isLoadingChat) return;
 
     setChatError(null);
+    const userMessageId = `user-${Date.now()}`;
     const assistantMessageId = `assistant-${Date.now()}`;
+    setAnimatedMessageId(userMessageId);
     setMessages(prev => [
       ...prev,
-      { role: 'user', content: text },
+      { id: userMessageId, role: 'user', content: text },
       { id: assistantMessageId, role: 'assistant', content: '' },
     ]);
     setIsLoadingChat(true);
@@ -274,6 +277,7 @@ export default function App() {
 
         <ChatArea
           messages={messages}
+          animatedMessageId={animatedMessageId}
           isLoading={isLoadingChat}
           error={chatError}
           onRetry={() => currentConversationId ? setConversationReloadKey(key => key + 1) : null}

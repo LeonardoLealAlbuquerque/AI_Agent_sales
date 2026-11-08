@@ -6,13 +6,14 @@ import rehypeSanitize from 'rehype-sanitize';
 interface MessageProps {
   content: string;
   role: 'user' | 'assistant' | 'system' | 'tool'; // ← Adicionado 'tool' aqui
+  animateOnEnter?: boolean;
 }
 
 function normalizeNumberGroupSeparators(content: string): string {
   return content.replace(/(\d)[ \u00a0\u202f](?=\d{3}(?:[^\d]|$))/g, '$1.');
 }
 
-export function ChatMessage({ content, role }: MessageProps) {
+export function ChatMessage({ content, role, animateOnEnter = false }: MessageProps) {
   if (!content || content.trim() === ''){
     return null;
   }
@@ -36,7 +37,7 @@ export function ChatMessage({ content, role }: MessageProps) {
     : content;
 
   return (
-    <div className={`flex ${role === 'user' ? 'justify-end' : role === 'system' ? 'justify-center' : 'justify-start'}`}>
+    <div className={`flex ${role === 'user' ? `justify-end ${animateOnEnter ? 'user-message-enter' : ''}` : role === 'system' ? 'justify-center' : 'justify-start'}`}>
       <div className={`p-4 text-left rounded-lg my-2 max-w-[85%] ${getRoleStyles()}`}>
         <div className="prose dark:prose-invert max-w-none">
           <ReactMarkdown 
