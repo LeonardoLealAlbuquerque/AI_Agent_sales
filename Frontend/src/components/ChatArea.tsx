@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ChatMessage } from './ChatMessage';
+import type { MessageAnimationOrigin } from '../types/chat';
 
 export interface Message {
   id?: string;
@@ -11,12 +12,13 @@ export interface Message {
 interface ChatAreaProps {
   messages: Message[];
   animatedMessageId?: string | null;
+  animationOrigin?: MessageAnimationOrigin | null;
   isLoading?: boolean;
   error?: string | null; 
   onRetry?: () => void;  
 }
 
-export function ChatArea({ messages, animatedMessageId, isLoading, error, onRetry }: ChatAreaProps) {
+export function ChatArea({ messages, animatedMessageId, animationOrigin, isLoading, error, onRetry }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -47,6 +49,7 @@ export function ChatArea({ messages, animatedMessageId, isLoading, error, onRetr
           role={message.role}
           content={message.content}
           animateOnEnter={message.id === animatedMessageId}
+          animationOrigin={message.id === animatedMessageId ? animationOrigin : null}
         />
       ))}
 

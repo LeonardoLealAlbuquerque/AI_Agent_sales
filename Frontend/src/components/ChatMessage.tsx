@@ -1,19 +1,40 @@
+import { useLayoutEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
+import type { MessageAnimationOrigin } from '../types/chat';
 
 interface MessageProps {
   content: string;
   role: 'user' | 'assistant' | 'system' | 'tool'; // ← Adicionado 'tool' aqui
   animateOnEnter?: boolean;
+  animationOrigin?: MessageAnimationOrigin | null;
 }
 
 function normalizeNumberGroupSeparators(content: string): string {
   return content.replace(/(\d)[ \u00a0\u202f](?=\d{3}(?:[^\d]|$))/g, '$1.');
 }
 
-export function ChatMessage({ content, role, animateOnEnter = false }: MessageProps) {
+export function ChatMessage({ content, role, animateOnEnter = false, animationOrigin }: MessageProps) {
+  const messageRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const message = messageRef.current;
+    if (!message || role !== 'user' || !animateOnEnter) return;
+
+    const bounds = message.getBoundingClientRect();
+    const translateX = animationOrigin ? animationOrigin.x - (bounds.left + bounds.width / 2) : 0;
+    const translateY = animationOrigin
+      ? Math.max(72, animationOrigin.y - (bounds.top + bounds.height / 2))
+      : 72;
+    message.style.setProperty('--message-from-x', `${translateX}px`);
+    message.style.setProperty('--message-from-y', `${translateY}px`);
+    message.classList.remove('user-message-enter');
+    void message.offsetWidth;
+    message.classList.add('user-message-enter');
+  }, [animateOnEnter, animationOrigin, role]);
+
   if (!content || content.trim() === ''){
     return null;
   }
@@ -37,8 +58,8 @@ export function ChatMessage({ content, role, animateOnEnter = false }: MessagePr
     : content;
 
   return (
-    <div className={`flex ${role === 'user' ? `justify-end ${animateOnEnter ? 'user-message-enter' : ''}` : role === 'system' ? 'justify-center' : 'justify-start'}`}>
-      <div className={`p-4 text-left rounded-lg my-2 max-w-[85%] ${getRoleStyles()}`}>
+    <div className={`flex ${role === 'user' ? 'justify-end' : role === 'system' ? 'justify-center' : 'justify-start'}`}>
+      <div ref={messageRef} className={`p-4 text-left rounded-lg my-2 max-w-[85%] ${getRoleStyles()}`}>
         <div className="prose dark:prose-invert max-w-none">
           <ReactMarkdown 
             remarkPlugins={[remarkGfm]}

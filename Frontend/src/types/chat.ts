@@ -7,6 +7,11 @@ export interface ChatMessage {
   created_at?: string;
 }
 
+export interface MessageAnimationOrigin {
+  x: number;
+  y: number;
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;

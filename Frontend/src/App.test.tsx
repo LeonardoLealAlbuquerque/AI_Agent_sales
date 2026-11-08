@@ -114,7 +114,6 @@ describe('Integração do App (Frontend)', () => {
 
     // VALIDAÇÃO VISUAL (Alinhamento)
     expect(userMsg.closest('.flex')).toHaveClass('justify-end'); // Usuário à direita
-    expect(userMsg.closest('.flex')).not.toHaveClass('user-message-enter');
     expect(botMsg.closest('.flex')).toHaveClass('justify-start'); // Agente à esquerda
   });
 
@@ -167,7 +166,6 @@ describe('Integração do App (Frontend)', () => {
     
     const sendButton = screen.getByRole('button', { name: /enviar mensagem/i });
     await user.click(sendButton);
-    expect(screen.getByText('Oi!').closest('.flex')).toHaveClass('user-message-enter');
 
     await waitFor(() => {
       expect(api.sendMessage).toHaveBeenCalledWith({
@@ -178,6 +176,26 @@ describe('Integração do App (Frontend)', () => {
 
     expect(await screen.findByText('Olá, sou o assistente!')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('current-route')).toHaveTextContent('/nova-conv-123'));
+  });
+
+  it('deve exibir a mensagem enviada ao pressionar Enter', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getConversations).mockResolvedValue([]);
+    vi.mocked(api.sendMessage).mockResolvedValue({
+      response: 'Resposta.',
+      conversation_id: 'nova-conv-enter',
+    });
+
+    renderApp();
+
+    const input = screen.getByLabelText('Campo de entrada de texto');
+    await user.type(input, 'Mensagem com Enter{Enter}');
+
+    expect(screen.getByText('Mensagem com Enter')).toBeInTheDocument();
+    expect(api.sendMessage).toHaveBeenCalledWith(
+      { message: 'Mensagem com Enter', conversation_id: null },
+      expect.any(Function),
+    );
   });
 
   it('5. Deve enviar mensagem COM conversation_id ao estar em uma conversa existente', async () => {
@@ -272,6 +290,28 @@ describe('Integração do App (Frontend)', () => {
 });
 
 describe('Renderização de mensagens', () => {
+  it('aplica a animação de entrada somente à nova mensagem do usuário', () => {
+    const { rerender } = render(
+      <ChatMessage
+        content="Mensagem enviada"
+        role="user"
+        animateOnEnter
+        animationOrigin={{ x: 120, y: 240 }}
+      />,
+    );
+
+    const userMessage = screen.getByText('Mensagem enviada').closest('.user-message-enter');
+    expect(userMessage).toBeInTheDocument();
+    expect(userMessage).toHaveStyle({
+      '--message-from-x': '120px',
+      '--message-from-y': '240px',
+    });
+    expect(userMessage).toHaveClass('user-message-enter');
+
+    rerender(<ChatMessage content="Resposta" role="assistant" animateOnEnter />);
+    expect(screen.getByText('Resposta').closest('.user-message-enter')).not.toBeInTheDocument();
+  });
+
   it('formata espaços como separadores de milhar em respostas do assistente', () => {
     render(
       <ChatMessage

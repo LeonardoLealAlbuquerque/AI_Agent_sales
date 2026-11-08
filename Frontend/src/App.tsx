@@ -4,7 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { ChatArea } from './components/ChatArea';
 import { ChatInput } from './components/ChatInput';
 import { api } from './services/api';
-import type { ConversationSummary, ChatMessage } from './types/chat';
+import type { ConversationSummary, ChatMessage, MessageAnimationOrigin } from './types/chat';
 
 export default function App() {
   const navigate = useNavigate();
@@ -13,6 +13,7 @@ export default function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [animatedMessageId, setAnimatedMessageId] = useState<string | null>(null);
+  const [animationOrigin, setAnimationOrigin] = useState<MessageAnimationOrigin | null>(null);
 
   const [isLoadingSidebar, setIsLoadingSidebar] = useState(false);
   const [sidebarError, setSidebarError] = useState<string | null>(null);
@@ -131,13 +132,14 @@ export default function App() {
     }
   };
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, origin: MessageAnimationOrigin | null) => {
     if (!text.trim() || isLoadingChat) return;
 
     setChatError(null);
     const userMessageId = `user-${Date.now()}`;
     const assistantMessageId = `assistant-${Date.now()}`;
     setAnimatedMessageId(userMessageId);
+    setAnimationOrigin(origin);
     setMessages(prev => [
       ...prev,
       { id: userMessageId, role: 'user', content: text },
@@ -278,6 +280,7 @@ export default function App() {
         <ChatArea
           messages={messages}
           animatedMessageId={animatedMessageId}
+          animationOrigin={animationOrigin}
           isLoading={isLoadingChat}
           error={chatError}
           onRetry={() => currentConversationId ? setConversationReloadKey(key => key + 1) : null}

@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
+import type { MessageAnimationOrigin } from '../types/chat';
 
 interface ChatInputProps {
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, origin: MessageAnimationOrigin | null) => void;
   isLoading: boolean;
 }
 
 export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
@@ -18,7 +20,12 @@ export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (text.trim() && !isLoading) {
-      onSendMessage(text);
+      const sourceBounds = sendButtonRef.current?.getBoundingClientRect()
+        ?? inputRef.current?.getBoundingClientRect();
+      const origin = sourceBounds
+        ? { x: sourceBounds.left + sourceBounds.width / 2, y: sourceBounds.top + sourceBounds.height / 2 }
+        : null;
+      onSendMessage(text, origin);
       setText('');
     }
   };
@@ -41,6 +48,7 @@ export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
             className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:text-gray-500 shadow-sm"
           />
           <button
+            ref={sendButtonRef}
             type="submit"
             disabled={!text.trim() || isLoading}
             aria-label="Enviar mensagem"
