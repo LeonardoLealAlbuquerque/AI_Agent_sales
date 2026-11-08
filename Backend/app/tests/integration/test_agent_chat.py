@@ -12,7 +12,7 @@ from app.models.invoice import Invoice
 from app.schemas.agent import ChatRequest
 from app.repositories.conversation_repository import ConversationRepository
 from app.services.chromadb_service import ChromaDBService
-from app.agent.service import _estimated_token_count
+from app.agent.conversation_memory import estimated_token_count
 
 
 @pytest.fixture
@@ -365,7 +365,10 @@ def test_long_persisted_history_is_summarized_and_keeps_recent_tool_turn(db, mon
         content="O cadastro encontrado é Exemplo LTDA.",
     )
     db.commit()
-    monkeypatch.setattr("app.agent.service.settings.AGENT_CONTEXT_BUDGET_TOKENS", 9000)
+    monkeypatch.setattr(
+        "app.agent.conversation_memory.settings.AGENT_CONTEXT_BUDGET_TOKENS",
+        9000,
+    )
 
     stream_chunk = MagicMock()
     stream_chunk.choices[0].delta.content = "Resposta atual."
@@ -436,8 +439,8 @@ def test_long_persisted_history_is_summarized_and_keeps_recent_tool_turn(db, mon
         for message in agent_messages
     )
     assert (
-        _estimated_token_count(agent_messages)
-        + _estimated_token_count(agent_call["tools"])
+        estimated_token_count(agent_messages)
+        + estimated_token_count(agent_call["tools"])
         <= 9000
     )
 
@@ -498,7 +501,10 @@ def test_failed_history_summary_does_not_advance_cursor_or_persist_request(db, m
     )
     db.commit()
     initial_message_count = len(repository.messages(conversation.id))
-    monkeypatch.setattr("app.agent.service.settings.AGENT_CONTEXT_BUDGET_TOKENS", 8500)
+    monkeypatch.setattr(
+        "app.agent.conversation_memory.settings.AGENT_CONTEXT_BUDGET_TOKENS",
+        8500,
+    )
 
     mock_llm = MagicMock()
     mock_llm.chat_completion.side_effect = RuntimeError("summary provider unavailable")
@@ -518,7 +524,10 @@ def test_failed_history_summary_does_not_advance_cursor_or_persist_request(db, m
 
 
 def test_external_request_history_is_summarized_without_persisted_conversation(monkeypatch):
-    monkeypatch.setattr("app.agent.service.settings.AGENT_CONTEXT_BUDGET_TOKENS", 8500)
+    monkeypatch.setattr(
+        "app.agent.conversation_memory.settings.AGENT_CONTEXT_BUDGET_TOKENS",
+        8500,
+    )
     mock_llm = MagicMock()
     stream_chunk = MagicMock()
     stream_chunk.choices[0].delta.content = "Resposta."
