@@ -23,11 +23,9 @@ htmlcov/
 **/coverage/
 
 # Local environment variables and secrets
-.env
-.env.*
-!.env.example
-Backend/.env
-!Backend/.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 # Local databases and persisted vector store
 *.db
@@ -47,3 +45,8 @@ Thumbs.db
 
 # IDE metadata
 .idea/
+
+# Local Spec Kit Copilot integration settings
+/Backend/.specify/init-options.json
+/Backend/.specify/integration.json
+/Backend/.specify/integrations/copilot.manifest.json

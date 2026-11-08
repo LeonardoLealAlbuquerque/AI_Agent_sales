@@ -150,6 +150,15 @@ Para aplicar as migrações em um banco existente, no diretório `Backend`, exec
 alembic upgrade head
 ```
 
+A configuração do Alembic segue `DATABASE_URL`, a mesma variável usada pela aplicação; sem ela, ambos usam `Backend/app.db`. Se o banco existente foi criado pelo `create_all` da aplicação e ainda não possui a tabela `alembic_version`, confira primeiro se o esquema corresponde ao revision `a4c18d7e2b90` (campos de clientes, faturas, pedidos, itens, conversas e solicitações de crédito já presentes). Só então registre essa versão-base e aplique as migrações pendentes:
+
+```powershell
+alembic stamp a4c18d7e2b90
+alembic upgrade head
+```
+
+O comando `stamp` não altera as tabelas: ele apenas registra a versão já existente. Não o use em bancos cujo esquema não corresponda a essa revisão.
+
 A migração interrompe com uma mensagem explícita se encontrar registros legados de faturas, pedidos ou itens sem os dados necessários para preencher as novas colunas com segurança. Reconcilie esses registros antes de tentar novamente.
 
 Para criar as tabelas e inserir dados demonstrativos opcionais em um banco vazio:
